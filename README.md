@@ -43,7 +43,7 @@ If `-f` is omitted, it defaults to `pgpolicy.yaml` in the current directory. The
 A manifest defines roles, grants, default privileges, and memberships. Profiles let you define reusable privilege templates that expand across schemas.
 
 ```yaml
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -67,7 +67,7 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor, viewer]
   - name: catalog
     profiles: [viewer]
@@ -83,12 +83,12 @@ grants:
     on: { type: database, name: mydb }
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: app-service
 ```
 
-This expands into roles `ibody-editor`, `ibody-viewer`, `catalog-viewer`, and `app-service`, with grants and default privileges scoped to each schema.
+This expands into roles `inventory-editor`, `inventory-viewer`, `catalog-viewer`, and `app-service`, with grants and default privileges scoped to each schema.
 
 ### Profile expansion
 

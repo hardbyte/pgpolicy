@@ -10,7 +10,7 @@ spec:
       name: postgres-credentials
     # secretKey defaults to DATABASE_URL
   interval: "5m"
-  defaultOwner: pgloader_pg
+  defaultOwner: app_owner
 
   profiles:
     editor:

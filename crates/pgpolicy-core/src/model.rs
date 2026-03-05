@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn role_graph_from_expanded_manifest() {
         let yaml = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -408,7 +408,7 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
 
 roles:
@@ -416,7 +416,7 @@ roles:
     login: true
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: "user@example.com"
         inherit: true
@@ -425,25 +425,25 @@ memberships:
         let expanded = expand_manifest(&manifest).unwrap();
         let graph = RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref());
 
-        // Two roles: ibody-editor (from profile) + analytics (one-off)
+        // Two roles: inventory-editor (from profile) + analytics (one-off)
         assert_eq!(graph.roles.len(), 2);
-        assert!(graph.roles.contains_key("ibody-editor"));
+        assert!(graph.roles.contains_key("inventory-editor"));
         assert!(graph.roles.contains_key("analytics"));
 
-        // ibody-editor is NOLOGIN, analytics is LOGIN
-        assert!(!graph.roles["ibody-editor"].login);
+        // inventory-editor is NOLOGIN, analytics is LOGIN
+        assert!(!graph.roles["inventory-editor"].login);
         assert!(graph.roles["analytics"].login);
 
         // Two grant targets: schema USAGE + table SELECT,INSERT
         assert_eq!(graph.grants.len(), 2);
 
-        // One default privilege entry: SELECT,INSERT on tables for ibody-editor
+        // One default privilege entry: SELECT,INSERT on tables for inventory-editor
         assert_eq!(graph.default_privileges.len(), 1);
         let dp_key = graph.default_privileges.keys().next().unwrap();
-        assert_eq!(dp_key.owner, "pgloader_pg");
-        assert_eq!(dp_key.schema, "ibody");
+        assert_eq!(dp_key.owner, "app_owner");
+        assert_eq!(dp_key.schema, "inventory");
         assert_eq!(dp_key.on_type, ObjectType::Table);
-        assert_eq!(dp_key.grantee, "ibody-editor");
+        assert_eq!(dp_key.grantee, "inventory-editor");
         let dp_privs = &graph.default_privileges.values().next().unwrap().privileges;
         assert!(dp_privs.contains(&Privilege::Select));
         assert!(dp_privs.contains(&Privilege::Insert));
@@ -451,7 +451,7 @@ memberships:
         // One membership edge
         assert_eq!(graph.memberships.len(), 1);
         let edge = graph.memberships.iter().next().unwrap();
-        assert_eq!(edge.role, "ibody-editor");
+        assert_eq!(edge.role, "inventory-editor");
         assert_eq!(edge.member, "user@example.com");
         assert!(edge.inherit);
         assert!(!edge.admin);

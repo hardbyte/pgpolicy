@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn quote_ident_with_hyphen() {
-        assert_eq!(quote_ident("ibody-editor"), "\"ibody-editor\"");
+        assert_eq!(quote_ident("inventory-editor"), "\"inventory-editor\"");
     }
 
     #[test]
@@ -430,11 +430,11 @@ mod tests {
     #[test]
     fn render_create_role_basic() {
         let change = Change::CreateRole {
-            name: "ibody-editor".to_string(),
+            name: "inventory-editor".to_string(),
             state: RoleState::default(),
         };
         let sql = render(&change);
-        assert!(sql.starts_with("CREATE ROLE \"ibody-editor\""));
+        assert!(sql.starts_with("CREATE ROLE \"inventory-editor\""));
         assert!(sql.contains("NOLOGIN"));
         assert!(sql.contains("NOSUPERUSER"));
         assert!(sql.contains("INHERIT")); // default is INHERIT
@@ -477,29 +477,32 @@ mod tests {
     #[test]
     fn render_grant_schema_usage() {
         let change = Change::Grant {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             privileges: BTreeSet::from([Privilege::Usage]),
             object_type: ObjectType::Schema,
             schema: None,
-            name: Some("ibody".to_string()),
+            name: Some("inventory".to_string()),
         };
         let sql = render(&change);
-        assert_eq!(sql, "GRANT USAGE ON SCHEMA \"ibody\" TO \"ibody-editor\";");
+        assert_eq!(
+            sql,
+            "GRANT USAGE ON SCHEMA \"inventory\" TO \"inventory-editor\";"
+        );
     }
 
     #[test]
     fn render_grant_all_tables() {
         let change = Change::Grant {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             privileges: BTreeSet::from([Privilege::Select, Privilege::Insert]),
             object_type: ObjectType::Table,
-            schema: Some("ibody".to_string()),
+            schema: Some("inventory".to_string()),
             name: Some("*".to_string()),
         };
         let sql = render(&change);
         assert_eq!(
             sql,
-            "GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA \"ibody\" TO \"ibody-editor\";"
+            "GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA \"inventory\" TO \"inventory-editor\";"
         );
     }
 
@@ -519,55 +522,55 @@ mod tests {
     #[test]
     fn render_revoke_all_sequences() {
         let change = Change::Revoke {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             privileges: BTreeSet::from([Privilege::Usage, Privilege::Select]),
             object_type: ObjectType::Sequence,
-            schema: Some("ibody".to_string()),
+            schema: Some("inventory".to_string()),
             name: Some("*".to_string()),
         };
         let sql = render(&change);
         assert_eq!(
             sql,
-            "REVOKE SELECT, USAGE ON ALL SEQUENCES IN SCHEMA \"ibody\" FROM \"ibody-editor\";"
+            "REVOKE SELECT, USAGE ON ALL SEQUENCES IN SCHEMA \"inventory\" FROM \"inventory-editor\";"
         );
     }
 
     #[test]
     fn render_set_default_privilege() {
         let change = Change::SetDefaultPrivilege {
-            owner: "pgloader_pg".to_string(),
-            schema: "ibody".to_string(),
+            owner: "app_owner".to_string(),
+            schema: "inventory".to_string(),
             on_type: ObjectType::Table,
-            grantee: "ibody-editor".to_string(),
+            grantee: "inventory-editor".to_string(),
             privileges: BTreeSet::from([Privilege::Select, Privilege::Insert]),
         };
         let sql = render(&change);
         assert_eq!(
             sql,
-            "ALTER DEFAULT PRIVILEGES FOR ROLE \"pgloader_pg\" IN SCHEMA \"ibody\" GRANT INSERT, SELECT ON TABLES TO \"ibody-editor\";"
+            "ALTER DEFAULT PRIVILEGES FOR ROLE \"app_owner\" IN SCHEMA \"inventory\" GRANT INSERT, SELECT ON TABLES TO \"inventory-editor\";"
         );
     }
 
     #[test]
     fn render_revoke_default_privilege() {
         let change = Change::RevokeDefaultPrivilege {
-            owner: "pgloader_pg".to_string(),
-            schema: "ibody".to_string(),
+            owner: "app_owner".to_string(),
+            schema: "inventory".to_string(),
             on_type: ObjectType::Function,
-            grantee: "ibody-editor".to_string(),
+            grantee: "inventory-editor".to_string(),
             privileges: BTreeSet::from([Privilege::Execute]),
         };
         let sql = render(&change);
         assert_eq!(
             sql,
-            "ALTER DEFAULT PRIVILEGES FOR ROLE \"pgloader_pg\" IN SCHEMA \"ibody\" REVOKE EXECUTE ON FUNCTIONS FROM \"ibody-editor\";"
+            "ALTER DEFAULT PRIVILEGES FOR ROLE \"app_owner\" IN SCHEMA \"inventory\" REVOKE EXECUTE ON FUNCTIONS FROM \"inventory-editor\";"
         );
     }
 
     #[test]
     fn render_add_member_basic() {
         let change = Change::AddMember {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             member: "user@example.com".to_string(),
             inherit: true,
             admin: false,
@@ -575,14 +578,14 @@ mod tests {
         let sql = render(&change);
         assert_eq!(
             sql,
-            "GRANT \"ibody-editor\" TO \"user@example.com\" WITH INHERIT TRUE;"
+            "GRANT \"inventory-editor\" TO \"user@example.com\" WITH INHERIT TRUE;"
         );
     }
 
     #[test]
     fn render_add_member_with_admin() {
         let change = Change::AddMember {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             member: "admin@example.com".to_string(),
             inherit: true,
             admin: true,
@@ -590,14 +593,14 @@ mod tests {
         let sql = render(&change);
         assert_eq!(
             sql,
-            "GRANT \"ibody-editor\" TO \"admin@example.com\" WITH INHERIT TRUE, ADMIN TRUE;"
+            "GRANT \"inventory-editor\" TO \"admin@example.com\" WITH INHERIT TRUE, ADMIN TRUE;"
         );
     }
 
     #[test]
     fn render_add_member_no_inherit() {
         let change = Change::AddMember {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             member: "noinherit@example.com".to_string(),
             inherit: false,
             admin: false,
@@ -605,18 +608,21 @@ mod tests {
         let sql = render(&change);
         assert_eq!(
             sql,
-            "GRANT \"ibody-editor\" TO \"noinherit@example.com\" WITH INHERIT FALSE;"
+            "GRANT \"inventory-editor\" TO \"noinherit@example.com\" WITH INHERIT FALSE;"
         );
     }
 
     #[test]
     fn render_remove_member() {
         let change = Change::RemoveMember {
-            role: "ibody-editor".to_string(),
+            role: "inventory-editor".to_string(),
             member: "user@example.com".to_string(),
         };
         let sql = render(&change);
-        assert_eq!(sql, "REVOKE \"ibody-editor\" FROM \"user@example.com\";");
+        assert_eq!(
+            sql,
+            "REVOKE \"inventory-editor\" FROM \"user@example.com\";"
+        );
     }
 
     #[test]
@@ -645,7 +651,7 @@ mod tests {
         use crate::model::RoleGraph;
 
         let yaml = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -659,11 +665,11 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: "user@example.com"
 "#;
@@ -676,11 +682,11 @@ memberships:
         let sql = render_all(&changes);
 
         // Smoke test: the output should contain key SQL statements
-        assert!(sql.contains("CREATE ROLE \"ibody-editor\""));
-        assert!(sql.contains("GRANT USAGE ON SCHEMA \"ibody\" TO \"ibody-editor\""));
-        assert!(sql.contains("ALL TABLES IN SCHEMA \"ibody\""));
+        assert!(sql.contains("CREATE ROLE \"inventory-editor\""));
+        assert!(sql.contains("GRANT USAGE ON SCHEMA \"inventory\" TO \"inventory-editor\""));
+        assert!(sql.contains("ALL TABLES IN SCHEMA \"inventory\""));
         assert!(sql.contains("ALTER DEFAULT PRIVILEGES"));
-        assert!(sql.contains("GRANT \"ibody-editor\" TO \"user@example.com\""));
+        assert!(sql.contains("GRANT \"inventory-editor\" TO \"user@example.com\""));
 
         // Print for manual inspection during development
         #[cfg(test)]

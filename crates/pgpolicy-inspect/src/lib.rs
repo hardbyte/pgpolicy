@@ -130,8 +130,8 @@ pub async fn inspect(pool: &PgPool, config: &InspectConfig) -> Result<RoleGraph,
         graph.memberships.insert(row.to_membership_edge());
     }
     // Also add memberships where the member (not the group) is a managed role.
-    // This captures cases like "user@example.com is a member of ibody-editor"
-    // where ibody-editor is the group (managed) and user@example.com is the member.
+    // This captures cases like "user@example.com is a member of inventory-editor"
+    // where inventory-editor is the group (managed) and user@example.com is the member.
     // The fetch above already handles this (filters on group role = managed).
     debug!(found = graph.memberships.len(), "memberships inspected");
 
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn inspect_config_from_expanded_manifest() {
         let yaml = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -203,7 +203,7 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
   - name: catalog
     profiles: [editor]
@@ -221,15 +221,19 @@ grants:
         let expanded = expand_manifest(&manifest).unwrap();
         let config = InspectConfig::from_expanded(&expanded, true);
 
-        // Managed roles: ibody-editor, catalog-editor, analytics
+        // Managed roles: inventory-editor, catalog-editor, analytics
         assert_eq!(config.managed_roles.len(), 3);
-        assert!(config.managed_roles.contains(&"ibody-editor".to_string()));
+        assert!(
+            config
+                .managed_roles
+                .contains(&"inventory-editor".to_string())
+        );
         assert!(config.managed_roles.contains(&"catalog-editor".to_string()));
         assert!(config.managed_roles.contains(&"analytics".to_string()));
 
-        // Managed schemas: ibody, catalog
+        // Managed schemas: inventory, catalog
         assert_eq!(config.managed_schemas.len(), 2);
-        assert!(config.managed_schemas.contains(&"ibody".to_string()));
+        assert!(config.managed_schemas.contains(&"inventory".to_string()));
         assert!(config.managed_schemas.contains(&"catalog".to_string()));
 
         assert!(config.include_database_privileges);

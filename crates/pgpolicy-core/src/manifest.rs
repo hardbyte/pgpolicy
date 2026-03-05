@@ -100,7 +100,7 @@ impl std::fmt::Display for Privilege {
 /// Top-level policy manifest — the YAML file that users write.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyManifest {
-    /// Default owner for ALTER DEFAULT PRIVILEGES (e.g. "pgloader_pg").
+    /// Default owner for ALTER DEFAULT PRIVILEGES (e.g. "app_owner").
     #[serde(default)]
     pub default_owner: Option<String>,
 
@@ -446,7 +446,7 @@ roles:
     #[test]
     fn parse_full_policy() {
         let yaml = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -469,7 +469,7 @@ profiles:
         on_type: function
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
   - name: catalog
     profiles: [editor]
@@ -479,7 +479,7 @@ roles:
     login: true
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: "alice@example.com"
         inherit: true
@@ -489,7 +489,7 @@ memberships:
         assert_eq!(manifest.schemas.len(), 2);
         assert_eq!(manifest.roles.len(), 1);
         assert_eq!(manifest.memberships.len(), 1);
-        assert_eq!(manifest.default_owner, Some("pgloader_pg".to_string()));
+        assert_eq!(manifest.default_owner, Some("app_owner".to_string()));
     }
 
     #[test]
@@ -595,11 +595,11 @@ profiles:
     grants: []
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
 
 roles:
-  - name: ibody-editor
+  - name: inventory-editor
 "#;
         let manifest = parse_manifest(yaml).unwrap();
         let result = expand_manifest(&manifest);
@@ -618,7 +618,7 @@ roles:
 profiles: {}
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [nonexistent]
 "#;
         let manifest = parse_manifest(yaml).unwrap();
@@ -635,7 +635,7 @@ profiles:
     grants: []
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
     role_pattern: "static-name"
 "#;
@@ -653,7 +653,7 @@ schemas:
     #[test]
     fn expand_default_privileges_with_owner_override() {
         let yaml = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -663,7 +663,7 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
   - name: legacy
     profiles: [editor]
@@ -674,12 +674,12 @@ schemas:
 
         assert_eq!(expanded.default_privileges.len(), 2);
 
-        // ibody uses default_owner
+        // inventory uses default_owner
         assert_eq!(
             expanded.default_privileges[0].owner,
-            Some("pgloader_pg".to_string())
+            Some("app_owner".to_string())
         );
-        assert_eq!(expanded.default_privileges[0].schema, "ibody");
+        assert_eq!(expanded.default_privileges[0].schema, "inventory");
 
         // legacy uses override
         assert_eq!(
@@ -699,7 +699,7 @@ profiles:
         on: { type: table, name: "*" }
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
 
 roles:
@@ -711,7 +711,7 @@ grants:
     privileges: [SELECT]
     on:
       type: table
-      schema: ibody
+      schema: inventory
       name: "*"
 "#;
         let manifest = parse_manifest(yaml).unwrap();
@@ -725,7 +725,7 @@ grants:
     fn parse_membership_with_email_roles() {
         let yaml = r#"
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: "alice@example.com"
         inherit: true

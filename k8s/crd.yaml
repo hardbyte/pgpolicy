@@ -51,7 +51,7 @@ spec:
                 - secretRef
                 type: object
               default_owner:
-                description: Default owner for ALTER DEFAULT PRIVILEGES (e.g. "pgloader_pg").
+                description: Default owner for ALTER DEFAULT PRIVILEGES (e.g. "app_owner").
                 nullable: true
                 type: string
               default_privileges:

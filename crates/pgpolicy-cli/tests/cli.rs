@@ -34,7 +34,7 @@ fn pgpolicy_cmd() -> assert_cmd::Command {
 // ---------------------------------------------------------------------------
 
 const VALID_MINIMAL: &str = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 roles:
   - name: analytics
@@ -48,7 +48,7 @@ grants:
 "#;
 
 const VALID_PROFILES: &str = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -71,7 +71,7 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor, viewer]
   - name: catalog
     profiles: [viewer]
@@ -86,7 +86,7 @@ grants:
     on: { type: database, name: mydb }
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: app-service
 "#;

@@ -218,7 +218,7 @@ mod tests {
     use super::*;
 
     const MINIMAL_MANIFEST: &str = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 roles:
   - name: analytics
@@ -232,7 +232,7 @@ grants:
 "#;
 
     const PROFILE_MANIFEST: &str = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -255,7 +255,7 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor, viewer]
   - name: catalog
     profiles: [viewer]
@@ -270,7 +270,7 @@ grants:
     on: { type: database, name: mydb }
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: app-service
 "#;
@@ -298,7 +298,7 @@ schemas:
         let result = parse(MINIMAL_MANIFEST);
         assert!(result.is_ok());
         let manifest = result.unwrap();
-        assert_eq!(manifest.default_owner, Some("pgloader_pg".to_string()));
+        assert_eq!(manifest.default_owner, Some("app_owner".to_string()));
         assert_eq!(manifest.roles.len(), 1);
         assert_eq!(manifest.roles[0].name, "analytics");
     }
@@ -319,12 +319,12 @@ schemas:
     fn expand_profile_manifest() {
         let expanded = parse_and_expand(PROFILE_MANIFEST).unwrap();
 
-        // ibody-editor, ibody-viewer, catalog-viewer, app-service
+        // inventory-editor, inventory-viewer, catalog-viewer, app-service
         assert_eq!(expanded.roles.len(), 4);
 
         let role_names: Vec<&str> = expanded.roles.iter().map(|r| r.name.as_str()).collect();
-        assert!(role_names.contains(&"ibody-editor"));
-        assert!(role_names.contains(&"ibody-viewer"));
+        assert!(role_names.contains(&"inventory-editor"));
+        assert!(role_names.contains(&"inventory-viewer"));
         assert!(role_names.contains(&"catalog-viewer"));
         assert!(role_names.contains(&"app-service"));
     }
@@ -350,7 +350,7 @@ schemas:
 
         // Check the desired graph has the expected roles
         assert_eq!(validated.desired.roles.len(), 4);
-        assert!(validated.desired.roles.contains_key("ibody-editor"));
+        assert!(validated.desired.roles.contains_key("inventory-editor"));
         assert!(validated.desired.roles.contains_key("app-service"));
 
         // Check grants were expanded
@@ -373,7 +373,7 @@ schemas:
         assert!(!changes.is_empty());
 
         let summary = PlanSummary::from_changes(&changes);
-        assert_eq!(summary.roles_created, 4); // ibody-editor, ibody-viewer, catalog-viewer, app-service
+        assert_eq!(summary.roles_created, 4); // inventory-editor, inventory-viewer, catalog-viewer, app-service
         assert!(summary.grants > 0);
         assert!(!summary.is_empty());
     }

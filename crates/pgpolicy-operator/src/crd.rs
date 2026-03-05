@@ -43,7 +43,7 @@ pub struct PostgresPolicySpec {
     #[serde(default)]
     pub suspend: bool,
 
-    /// Default owner for ALTER DEFAULT PRIVILEGES (e.g. "pgloader_pg").
+    /// Default owner for ALTER DEFAULT PRIVILEGES (e.g. "app_owner").
     #[serde(default)]
     pub default_owner: Option<String>,
 
@@ -439,7 +439,7 @@ mod tests {
             },
             interval: "5m".to_string(),
             suspend: false,
-            default_owner: Some("pgloader_pg".to_string()),
+            default_owner: Some("app_owner".to_string()),
             profiles: std::collections::HashMap::new(),
             schemas: vec![],
             roles: vec![RoleSpec {
@@ -460,7 +460,7 @@ mod tests {
         };
 
         let manifest = spec.to_policy_manifest();
-        assert_eq!(manifest.default_owner, Some("pgloader_pg".to_string()));
+        assert_eq!(manifest.default_owner, Some("app_owner".to_string()));
         assert_eq!(manifest.roles.len(), 1);
         assert_eq!(manifest.roles[0].name, "analytics");
         assert_eq!(manifest.roles[0].login, Some(true));
@@ -508,7 +508,7 @@ connection:
   secretRef:
     name: pg-credentials
 interval: "10m"
-default_owner: pgloader_pg
+default_owner: app_owner
 profiles:
   editor:
     grants:
@@ -520,7 +520,7 @@ profiles:
       - privileges: [SELECT, INSERT, UPDATE, DELETE]
         on_type: table
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
 roles:
   - name: analytics
@@ -530,13 +530,13 @@ grants:
     privileges: [CONNECT]
     on: { type: database, name: mydb }
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: analytics
 "#;
         let spec: PostgresPolicySpec = serde_yaml::from_str(yaml).expect("should deserialize");
         assert_eq!(spec.interval, "10m");
-        assert_eq!(spec.default_owner, Some("pgloader_pg".to_string()));
+        assert_eq!(spec.default_owner, Some("app_owner".to_string()));
         assert_eq!(spec.profiles.len(), 1);
         assert!(spec.profiles.contains_key("editor"));
         assert_eq!(spec.schemas.len(), 1);

@@ -629,10 +629,10 @@ mod tests {
     fn diff_default_privileges_add_and_revoke() {
         let mut current = empty_graph();
         let key = DefaultPrivKey {
-            owner: "pgloader_pg".to_string(),
-            schema: "ibody".to_string(),
+            owner: "app_owner".to_string(),
+            schema: "inventory".to_string(),
             on_type: ObjectType::Table,
-            grantee: "ibody-editor".to_string(),
+            grantee: "inventory-editor".to_string(),
         };
         current.default_privileges.insert(
             key.clone(),
@@ -727,7 +727,7 @@ mod tests {
         use crate::model::RoleGraph;
 
         let yaml = r#"
-default_owner: pgloader_pg
+default_owner: app_owner
 
 profiles:
   editor:
@@ -741,11 +741,11 @@ profiles:
         on_type: table
 
 schemas:
-  - name: ibody
+  - name: inventory
     profiles: [editor]
 
 memberships:
-  - role: ibody-editor
+  - role: inventory-editor
     members:
       - name: "user@example.com"
 "#;
