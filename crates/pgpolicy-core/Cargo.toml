@@ -1,0 +1,14 @@
+[package]
+name = "pgpolicy-core"
+description = "Core types, manifest parsing, diff engine, and SQL generation for pgpolicy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }

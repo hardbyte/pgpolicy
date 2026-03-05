@@ -1,0 +1,31 @@
+[package]
+name = "pgpolicy-operator"
+description = "Kubernetes operator for pgpolicy — reconciles PostgresPolicy CRDs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pgpolicy-core = { workspace = true }
+pgpolicy-inspect = { workspace = true }
+anyhow = { workspace = true }
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "pgpolicy-operator"
+path = "src/main.rs"
+
+[[bin]]
+name = "crdgen"
+path = "src/bin/crdgen.rs"

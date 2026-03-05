@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/pgpolicy-core",
+    "crates/pgpolicy-inspect",
+    "crates/pgpolicy-cli",
+    "crates/pgpolicy-operator",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Brian Thorne <brian@thorne.link>"]
+license = "MIT"
+repository = "https://github.com/hardbyte/pgpolicy"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Kubernetes
+kube = { version = "0.98", features = ["runtime", "derive", "client"] }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+schemars = "0.8"
+
+# Internal crates
+pgpolicy-core = { path = "crates/pgpolicy-core" }
+pgpolicy-inspect = { path = "crates/pgpolicy-inspect" }
