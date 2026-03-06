@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pgroles-operator.fullname" . }}
+  labels:
+    {{- include "pgroles-operator.labels" . | nindent 4 }}
+rules:
+  # Watch and manage PostgresPolicy CRDs
+  - apiGroups: ["pgroles.io"]
+    resources: ["postgrespolicies"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["pgroles.io"]
+    resources: ["postgrespolicies/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["pgroles.io"]
+    resources: ["postgrespolicies/finalizers"]
+    verbs: ["update"]
+  # Read Secrets for database connection strings
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  # Emit events for observability
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]

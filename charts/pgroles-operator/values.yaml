@@ -1,0 +1,55 @@
+# Default values for pgroles-operator
+
+nameOverride: ""
+fullnameOverride: ""
+
+# If false, CRDs must be installed separately before installing the chart.
+installCRDs: true
+
+operator:
+  image:
+    repository: ghcr.io/hardbyte/pgroles-operator
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+
+  imagePullSecrets: []
+
+  serviceAccount:
+    # Specifies whether a service account should be created.
+    create: true
+    # Annotations to add to the service account.
+    annotations: {}
+    # Override the service account name. If unset, uses the fullname template.
+    name: ""
+
+  # Additional environment variables for the operator container.
+  env:
+    - name: RUST_LOG
+      value: "info,pgroles_operator=debug"
+
+  podAnnotations: {}
+
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65534
+    capabilities:
+      drop: ["ALL"]
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

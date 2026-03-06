@@ -1,0 +1,59 @@
+apiVersion: v2
+name: pgroles-operator
+description: >-
+  Declarative PostgreSQL role and privilege management.
+  Define roles, memberships, grants, and default privileges in YAML
+  and let the operator converge your database to the desired state.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+icon: https://raw.githubusercontent.com/hardbyte/pgroles/main/.github/logo.png
+sources:
+  - https://github.com/hardbyte/pgroles
+maintainers:
+  - name: Brian Thorne
+    email: brian@hardbyte.nz
+    url: https://hardbyte.nz
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release of the pgroles Kubernetes operator.
+  artifacthub.io/category: database
+  artifacthub.io/operator: "true"
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/operatorCapabilities: Full Lifecycle
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Source
+      url: https://github.com/hardbyte/pgroles
+  artifacthub.io/crds: |
+    - kind: PostgresPolicy
+      version: v1alpha1
+      name: postgrespolicies.pgroles.io
+      displayName: Postgres Policy
+      description: Declarative PostgreSQL role graph — roles, memberships, grants, and default privileges.
+  artifacthub.io/crdsExamples: |
+    - apiVersion: pgroles.io/v1alpha1
+      kind: PostgresPolicy
+      metadata:
+        name: example-policy
+      spec:
+        connection:
+          secretRef:
+            name: postgres-credentials
+        profiles:
+          editor:
+            grants:
+              - on: { type: table, name: "*" }
+                privileges: [SELECT, INSERT, UPDATE, DELETE]
+              - on: { type: schema }
+                privileges: [USAGE]
+          viewer:
+            grants:
+              - on: { type: table, name: "*" }
+                privileges: [SELECT]
+              - on: { type: schema }
+                privileges: [USAGE]
+        schemas:
+          - name: public
+            profiles: [editor, viewer]

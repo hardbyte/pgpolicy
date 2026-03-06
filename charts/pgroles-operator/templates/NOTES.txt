@@ -1,0 +1,40 @@
+pgroles-operator has been installed.
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+The operator is watching for PostgresPolicy resources cluster-wide.
+
+To create a policy, first create a Secret with your database connection string:
+
+  kubectl create secret generic postgres-credentials \
+    --from-literal=DATABASE_URL='postgres://user:pass@host:5432/dbname'
+
+Then apply a PostgresPolicy resource:
+
+  cat <<EOF | kubectl apply -f -
+  apiVersion: pgroles.io/v1alpha1
+  kind: PostgresPolicy
+  metadata:
+    name: my-policy
+  spec:
+    connection:
+      secretRef:
+        name: postgres-credentials
+    roles:
+      - name: app-reader
+        login: false
+    grants:
+      - role: app-reader
+        on: { type: schema, schema: public }
+        privileges: [USAGE]
+      - role: app-reader
+        on: { type: table, schema: public, name: "*" }
+        privileges: [SELECT]
+  EOF
+
+Check the status:
+
+  kubectl get pgr
+
+Documentation: https://github.com/hardbyte/pgroles
