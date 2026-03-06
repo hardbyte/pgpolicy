@@ -67,7 +67,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: pgpolicy_test
+          POSTGRES_DB: pgroles_test
         ports:
           - 5432:5432
         options: >-
@@ -76,7 +76,7 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     env:
-      DATABASE_URL: "postgres://postgres:testpassword@localhost:5432/pgpolicy_test"
+      DATABASE_URL: "postgres://postgres:testpassword@localhost:5432/pgroles_test"
     steps:
       - uses: actions/checkout@v4
 
@@ -111,7 +111,7 @@ jobs:
           }
 
       - name: Create kind cluster
-        run: kind create cluster --name pgpolicy-e2e --wait 60s
+        run: kind create cluster --name pgroles-e2e --wait 60s
 
       - name: Install CRD
         run: kubectl apply -f k8s/crd.yaml
@@ -127,8 +127,8 @@ jobs:
 
       - name: Build operator image and load into kind
         run: |
-          docker build --target operator -t pgpolicy-operator:e2e -f docker/Dockerfile .
-          kind load docker-image pgpolicy-operator:e2e --name pgpolicy-e2e
+          docker build --target operator -t pgroles-operator:e2e -f docker/Dockerfile .
+          kind load docker-image pgroles-operator:e2e --name pgroles-e2e
 
       - name: Deploy operator
         run: |
@@ -136,12 +136,12 @@ jobs:
           kubectl apply -f k8s/deploy/rbac.yaml
 
           # Patch deployment to use the locally-built image.
-          sed 's|ghcr.io/hardbyte/pgpolicy-operator:latest|pgpolicy-operator:e2e|' \
+          sed 's|ghcr.io/hardbyte/pgroles-operator:latest|pgroles-operator:e2e|' \
             k8s/deploy/deployment.yaml | \
             sed 's|imagePullPolicy:.*|imagePullPolicy: Never|' | \
             kubectl apply -f -
 
-          kubectl -n pgpolicy-system rollout status deployment/pgpolicy-operator --timeout=60s
+          kubectl -n pgroles-system rollout status deployment/pgroles-operator --timeout=60s
 
       - name: Apply sample policy
         run: kubectl apply -f k8s/samples/basic-policy.yaml
@@ -149,7 +149,7 @@ jobs:
       - name: Wait for reconciliation
         run: |
           for i in $(seq 1 30); do
-            STATUS=$(kubectl get pgp basic-policy -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+            STATUS=$(kubectl get pgr basic-policy -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
             if [ "$STATUS" = "True" ]; then
               echo "Policy reconciled successfully"
               exit 0
@@ -158,8 +158,8 @@ jobs:
             sleep 5
           done
           echo "::error::Policy did not reach Ready=True within timeout"
-          kubectl get pgp basic-policy -o yaml
-          kubectl -n pgpolicy-system logs deployment/pgpolicy-operator --tail=50
+          kubectl get pgr basic-policy -o yaml
+          kubectl -n pgroles-system logs deployment/pgroles-operator --tail=50
           exit 1
 
       - name: Verify roles exist in PostgreSQL
@@ -168,4 +168,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: kind delete cluster --name pgpolicy-e2e
+        run: kind delete cluster --name pgroles-e2e

@@ -1,10 +1,10 @@
-# Multi-schema pgpolicy manifest with profiles, one-off roles, and
+# Multi-schema pgroles manifest with profiles, one-off roles, and
 # external identity provider memberships.
 #
 # Scenario: a SaaS product with separate schemas for different domains
 # (orders, products, customers). A migration runner role owns all objects.
 # Teams access schemas through Google Workspace groups managed externally
-# (e.g. via Terraform) — pgpolicy only manages the membership edges, not
+# (e.g. via Terraform) — pgroles only manages the membership edges, not
 # the group roles themselves.
 
 default_owner: migration_runner
@@ -79,7 +79,7 @@ grants:
     on: { type: table, schema: customers, name: "*" }
     privileges: [SELECT]
 
-# Memberships — external group roles are NOT created by pgpolicy.
+# Memberships — external group roles are NOT created by pgroles.
 # Only the GRANT <role> TO <member> edge is managed.
 memberships:
   - role: orders-editor

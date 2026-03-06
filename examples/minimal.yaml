@@ -1,4 +1,4 @@
-# Minimal pgpolicy manifest — a single schema with editor/viewer profiles.
+# Minimal pgroles manifest — a single schema with editor/viewer profiles.
 #
 # This is the simplest useful configuration: two profiles applied to one
 # schema, producing two managed roles with appropriate grants and

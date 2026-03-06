@@ -1,42 +1,44 @@
-# pgpolicy
+# pgroles
 
-Declarative PostgreSQL role graph manager. Define roles, memberships, object privileges, and default privileges in YAML — pgpolicy diffs against live databases and applies changes.
+Declarative PostgreSQL role graph manager. Define roles, memberships, object privileges, and default privileges in YAML — pgroles diffs against live databases and applies changes.
 
 Requires **PostgreSQL 16+** (uses `GRANT ... WITH INHERIT` syntax).
 
+The project name is `pgroles`. The repository path is still `hardbyte/pgpolicy` until the GitHub repository is renamed.
+
 ## Components
 
-- **pgpolicy-core** — Manifest parsing, profile expansion, diff engine, SQL generation. No database dependencies.
-- **pgpolicy-inspect** — Live database introspection via `pg_catalog` queries (sqlx + tokio).
-- **pgpolicy-cli** — Command-line tool for validating manifests, planning changes, and applying them.
-- **pgpolicy-operator** — *(work in progress)* Kubernetes operator that reconciles `PostgresPolicy` custom resources against PostgreSQL databases.
+- **pgroles-core** — Manifest parsing, profile expansion, diff engine, SQL generation. No database dependencies.
+- **pgroles-inspect** — Live database introspection via `pg_catalog` queries (sqlx + tokio).
+- **pgroles-cli** — Command-line tool for validating manifests, planning changes, and applying them.
+- **pgroles-operator** — *(work in progress)* Kubernetes operator that reconciles `PostgresPolicy` custom resources against PostgreSQL databases.
 
 ## Quick Start
 
 ```bash
 # Validate a manifest (no database needed)
-pgpolicy validate -f policy.yaml
+pgroles validate -f policy.yaml
 
 # Show the SQL needed to converge the database to the manifest
-pgpolicy diff -f policy.yaml --database-url postgres://...
+pgroles diff -f policy.yaml --database-url postgres://...
 
 # Same thing — "plan" is an alias for "diff"
-pgpolicy plan -f policy.yaml --database-url postgres://...
+pgroles plan -f policy.yaml --database-url postgres://...
 
 # Preview as a summary instead of raw SQL
-pgpolicy diff -f policy.yaml --database-url postgres://... --format summary
+pgroles diff -f policy.yaml --database-url postgres://... --format summary
 
 # Apply changes
-pgpolicy apply -f policy.yaml --database-url postgres://...
+pgroles apply -f policy.yaml --database-url postgres://...
 
 # Dry run — print the SQL without executing
-pgpolicy apply -f policy.yaml --database-url postgres://... --dry-run
+pgroles apply -f policy.yaml --database-url postgres://... --dry-run
 
 # Inspect current database state for managed roles
-pgpolicy inspect -f policy.yaml --database-url postgres://...
+pgroles inspect -f policy.yaml --database-url postgres://...
 ```
 
-If `-f` is omitted, it defaults to `pgpolicy.yaml` in the current directory. The `--database-url` flag can also be set via the `DATABASE_URL` environment variable.
+If `-f` is omitted, it defaults to `pgroles.yaml` in the current directory. The `--database-url` flag can also be set via the `DATABASE_URL` environment variable.
 
 ## Manifest Format
 
@@ -111,7 +113,9 @@ Supported object types for grants: `table`, `view`, `materialized_view`, `sequen
 
 ### Convergent model
 
-pgpolicy is convergent: the manifest is the entire truth. Roles, grants, and memberships present in the database but absent from the manifest will be dropped/revoked.
+pgroles is convergent within the scope it manages today: the manifest is treated as the desired truth for the roles, grants, default privileges, and memberships it inspects. Roles, grants, and memberships present in the database but absent from the manifest will be dropped or revoked.
+
+Dry-run detection for dangerous destructive operations such as dropping roles that still own objects is still on the roadmap.
 
 ## License
 

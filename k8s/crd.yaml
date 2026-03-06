@@ -2,16 +2,16 @@
   "apiVersion": "apiextensions.k8s.io/v1",
   "kind": "CustomResourceDefinition",
   "metadata": {
-    "name": "postgrespolicies.pgpolicy.io"
+    "name": "postgrespolicies.pgroles.io"
   },
   "spec": {
-    "group": "pgpolicy.io",
+    "group": "pgroles.io",
     "names": {
       "categories": [],
       "kind": "PostgresPolicy",
       "plural": "postgrespolicies",
       "shortNames": [
-        "pgp"
+        "pgr"
       ],
       "singular": "postgrespolicy"
     },
@@ -267,7 +267,7 @@
                   },
                   "profiles": {
                     "additionalProperties": {
-                      "description": "A reusable privilege profile (CRD-compatible version).\n\nThis mirrors `pgpolicy_core::manifest::Profile` but derives `JsonSchema`.",
+                      "description": "A reusable privilege profile (CRD-compatible version).\n\nThis mirrors `pgroles_core::manifest::Profile` but derives `JsonSchema`.",
                       "properties": {
                         "default_privileges": {
                           "default": [],

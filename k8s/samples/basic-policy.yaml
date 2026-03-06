@@ -1,5 +1,5 @@
 ---
-apiVersion: pgpolicy.io/v1alpha1
+apiVersion: pgroles.io/v1alpha1
 kind: PostgresPolicy
 metadata:
   name: basic-policy

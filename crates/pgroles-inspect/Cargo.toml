@@ -1,0 +1,14 @@
+[package]
+name = "pgroles-inspect"
+description = "Database introspection for pgroles — queries pg_catalog to build the current RoleGraph"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pgroles-core = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

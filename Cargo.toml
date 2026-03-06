@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "crates/pgpolicy-core",
-    "crates/pgpolicy-inspect",
-    "crates/pgpolicy-cli",
-    "crates/pgpolicy-operator",
+    "crates/pgroles-core",
+    "crates/pgroles-inspect",
+    "crates/pgroles-cli",
+    "crates/pgroles-operator",
 ]
 resolver = "2"
 
@@ -46,5 +46,5 @@ k8s-openapi = { version = "0.24", features = ["latest"] }
 schemars = "0.8"
 
 # Internal crates
-pgpolicy-core = { path = "crates/pgpolicy-core" }
-pgpolicy-inspect = { path = "crates/pgpolicy-inspect" }
+pgroles-core = { path = "crates/pgroles-core" }
+pgroles-inspect = { path = "crates/pgroles-inspect" }

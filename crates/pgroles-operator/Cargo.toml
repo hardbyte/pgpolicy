@@ -1,0 +1,37 @@
+[package]
+name = "pgroles-operator"
+description = "Kubernetes operator for pgroles — reconciles PostgresPolicy CRDs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "pgroles_operator"
+path = "src/lib.rs"
+
+[dependencies]
+pgroles-core = { workspace = true }
+pgroles-inspect = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "pgroles-operator"
+path = "src/main.rs"
+
+[[bin]]
+name = "crdgen"
+path = "src/bin/crdgen.rs"

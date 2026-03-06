@@ -1,4 +1,4 @@
-# Multi-stage build for pgpolicy binaries.
+# Multi-stage build for pgroles binaries.
 # Produces a statically-linked musl binary in a minimal container.
 
 # ---------------------------------------------------------------------------
@@ -12,24 +12,24 @@ WORKDIR /build
 
 # Copy workspace manifests first for dependency caching.
 COPY Cargo.toml Cargo.lock ./
-COPY crates/pgpolicy-core/Cargo.toml crates/pgpolicy-core/Cargo.toml
-COPY crates/pgpolicy-inspect/Cargo.toml crates/pgpolicy-inspect/Cargo.toml
-COPY crates/pgpolicy-cli/Cargo.toml crates/pgpolicy-cli/Cargo.toml
-COPY crates/pgpolicy-operator/Cargo.toml crates/pgpolicy-operator/Cargo.toml
+COPY crates/pgroles-core/Cargo.toml crates/pgroles-core/Cargo.toml
+COPY crates/pgroles-inspect/Cargo.toml crates/pgroles-inspect/Cargo.toml
+COPY crates/pgroles-cli/Cargo.toml crates/pgroles-cli/Cargo.toml
+COPY crates/pgroles-operator/Cargo.toml crates/pgroles-operator/Cargo.toml
 
 # Create stub lib.rs files so cargo can resolve the workspace.
-RUN mkdir -p crates/pgpolicy-core/src \
-    && echo "pub fn _stub() {}" > crates/pgpolicy-core/src/lib.rs \
-    && mkdir -p crates/pgpolicy-inspect/src \
-    && echo "pub fn _stub() {}" > crates/pgpolicy-inspect/src/lib.rs \
-    && mkdir -p crates/pgpolicy-cli/src \
-    && echo "fn main() {}" > crates/pgpolicy-cli/src/main.rs \
-    && echo "pub fn _stub() {}" > crates/pgpolicy-cli/src/lib.rs \
-    && mkdir -p crates/pgpolicy-operator/src \
-    && echo "fn main() {}" > crates/pgpolicy-operator/src/main.rs \
-    && echo "pub fn _stub() {}" > crates/pgpolicy-operator/src/lib.rs \
-    && mkdir -p crates/pgpolicy-operator/src/bin \
-    && echo "fn main() {}" > crates/pgpolicy-operator/src/bin/crdgen.rs
+RUN mkdir -p crates/pgroles-core/src \
+    && echo "pub fn _stub() {}" > crates/pgroles-core/src/lib.rs \
+    && mkdir -p crates/pgroles-inspect/src \
+    && echo "pub fn _stub() {}" > crates/pgroles-inspect/src/lib.rs \
+    && mkdir -p crates/pgroles-cli/src \
+    && echo "fn main() {}" > crates/pgroles-cli/src/main.rs \
+    && echo "pub fn _stub() {}" > crates/pgroles-cli/src/lib.rs \
+    && mkdir -p crates/pgroles-operator/src \
+    && echo "fn main() {}" > crates/pgroles-operator/src/main.rs \
+    && echo "pub fn _stub() {}" > crates/pgroles-operator/src/lib.rs \
+    && mkdir -p crates/pgroles-operator/src/bin \
+    && echo "fn main() {}" > crates/pgroles-operator/src/bin/crdgen.rs
 
 # Pre-build dependencies (cached layer).
 ENV SQLX_OFFLINE=true
@@ -49,16 +49,16 @@ RUN cargo build --release --workspace
 # ---------------------------------------------------------------------------
 FROM cgr.dev/chainguard/static:latest AS cli
 
-COPY --from=builder /build/target/release/pgpolicy /usr/local/bin/pgpolicy
+COPY --from=builder /build/target/release/pgroles /usr/local/bin/pgroles
 
-ENTRYPOINT ["pgpolicy"]
+ENTRYPOINT ["pgroles"]
 
 # ---------------------------------------------------------------------------
 # Stage 3: Runtime — Operator
 # ---------------------------------------------------------------------------
 FROM cgr.dev/chainguard/static:latest AS operator
 
-COPY --from=builder /build/target/release/pgpolicy-operator /usr/local/bin/pgpolicy-operator
+COPY --from=builder /build/target/release/pgroles-operator /usr/local/bin/pgroles-operator
 
 USER 65534
-ENTRYPOINT ["pgpolicy-operator"]
+ENTRYPOINT ["pgroles-operator"]

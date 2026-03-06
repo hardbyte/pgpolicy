@@ -1593,14 +1593,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgpolicy-cli"
+name = "pgroles-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
- "pgpolicy-core",
- "pgpolicy-inspect",
+ "pgroles-core",
+ "pgroles-inspect",
  "predicates",
  "serde_json",
  "serde_yaml",
@@ -1612,7 +1612,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgpolicy-core"
+name = "pgroles-core"
 version = "0.1.0"
 dependencies = [
  "schemars",
@@ -1623,25 +1623,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgpolicy-inspect"
+name = "pgroles-inspect"
 version = "0.1.0"
 dependencies = [
- "pgpolicy-core",
+ "pgroles-core",
  "sqlx",
  "thiserror 2.0.18",
  "tracing",
 ]
 
 [[package]]
-name = "pgpolicy-operator"
+name = "pgroles-operator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
  "k8s-openapi",
  "kube",
- "pgpolicy-core",
- "pgpolicy-inspect",
+ "pgroles-core",
+ "pgroles-inspect",
  "schemars",
  "serde",
  "serde_json",
