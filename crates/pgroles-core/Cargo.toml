@@ -1,11 +1,15 @@
 [package]
 name = "pgroles-core"
-description = "Core types, manifest parsing, diff engine, and SQL generation for pgroles"
+description = "Core manifest, diff, SQL rendering, and export primitives for pgroles"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [dependencies]
 serde = { workspace = true }

@@ -11,6 +11,7 @@ pgroles treats your manifest as the **entire desired state** — roles, grants, 
 - **PostgreSQL 16+**: Full support including `GRANT ... WITH INHERIT`/`WITH ADMIN` syntax
 - **PostgreSQL 14–15**: Supported with automatic fallback to legacy grant syntax (`WITH ADMIN OPTION`)
 - CI integration tests run against PostgreSQL **16, 17, and 18**
+- Provider-aware privilege warnings currently recognize **AWS RDS/Aurora**, **Google Cloud SQL**, and **Azure Database for PostgreSQL**. Other PostgreSQL-compatible managed services, including **AlloyDB**, may still work, but warnings will be generic.
 
 ## Quick Start
 
@@ -47,6 +48,8 @@ pgroles diff -f policy.yaml --database-url postgres://... --exit-code
 ```
 
 If `-f` is omitted, it defaults to `pgroles.yaml` in the current directory. The `--database-url` flag can also be set via the `DATABASE_URL` environment variable.
+
+If you are adopting an existing database rather than starting greenfield, begin with `pgroles generate` and then refine the generated flat manifest into profiles and schema bindings.
 
 Example `pgroles diff` output:
 
@@ -161,6 +164,32 @@ That expands the inspection scope to include `legacy_app` even though it is no l
 
 Cleanup is still scoped to the current database plus shared objects. If the preflight reports dependencies in other databases, run the same cleanup against those databases before the final drop.
 
+## Operational Boundaries
+
+- One manifest converges one PostgreSQL connection target.
+- `pgroles` is authoritative within the roles, grants, default privileges, and memberships it inspects for that manifest.
+- Retirement cleanup (`REASSIGN OWNED` / `DROP OWNED`) only covers the current database plus shared objects.
+- Managed PostgreSQL is supported at the PostgreSQL protocol/DDL level, but provider-specific warning logic is only explicit for RDS/Aurora, Cloud SQL, and Azure today. Other services, including AlloyDB, are not yet special-cased.
+
+## CI/CD
+
+`pgroles diff` is designed to work as a drift gate:
+
+- Exit code `0`: database is in sync
+- Exit code `2`: drift detected
+- Any other non-zero exit: command or connectivity failure
+
+```bash
+if pgroles diff -f policy.yaml --database-url "$DATABASE_URL"; then
+  echo "database is in sync"
+else
+  case $? in
+    2) echo "drift detected" ;;
+    *) echo "pgroles failed" >&2; exit 1 ;;
+  esac
+fi
+```
+
 ## Installation
 
 ### From source
@@ -195,6 +224,28 @@ cargo test --workspace
 export DATABASE_URL=postgres://postgres:testpassword@localhost:5432/pgroles_test
 cargo test --workspace -- --include-ignored
 ```
+
+### Local Docker Repro
+
+```bash
+docker run --rm --name pgroles-pg16 \
+  -e POSTGRES_PASSWORD=testpassword \
+  -e POSTGRES_DB=pgroles_test \
+  -p 5432:5432 \
+  postgres:16
+```
+
+In another shell:
+
+```bash
+export DATABASE_URL=postgres://postgres:testpassword@localhost:5432/pgroles_test
+
+# Reproduce the CLI live-db tests locally
+cargo test -p pgroles-cli --test cli live_db::diff_against_live_db -- --ignored --exact
+cargo test -p pgroles-cli --test cli live_db::diff_summary_format -- --ignored --exact
+```
+
+Swap the image tag to `postgres:17` or `postgres:18` to mirror the CI integration matrix.
 
 ### Kubernetes Operator *(work in progress)*
 

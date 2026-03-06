@@ -33,7 +33,7 @@ Inspects:
 
 Also provides:
 - **Version detection** (`version.rs`) -- queries `server_version_num` to determine PG major version for syntax adaptation
-- **Cloud provider detection** (`cloud.rs`) -- detects whether the connecting role is a true superuser, cloud provider superuser (`rds_superuser`, `cloudsqlsuperuser`, `azure_pg_admin`), or regular user. Validates planned changes against detected privilege level.
+- **Cloud provider detection** (`cloud.rs`) -- detects whether the connecting role is a true superuser, an explicitly recognized cloud-provider admin role (`rds_superuser`, `cloudsqlsuperuser`, `azure_pg_admin`), or a regular user. Validates planned changes against detected privilege level.
 - **Unscoped introspection** (`inspect_all`) -- discovers all non-system roles for the `generate` command
 
 ### pgroles-cli
@@ -66,11 +66,13 @@ Database
     |
     v
 inspect() --> RoleGraph (current state)
+    |
+    +--> detect_pg_version() --> SqlContext
 
 diff(current, desired) --> Vec<Change>
     |
     v
-sql::render_all() --> SQL script
+sql::render_all_with_context() --> SQL script
 ```
 
 ## Convergent diff model

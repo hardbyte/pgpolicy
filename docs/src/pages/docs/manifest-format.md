@@ -44,6 +44,10 @@ Supported provider types:
 | `rds_iam` | AWS RDS/Aurora IAM authentication. Optional `region` field. |
 | `azure_ad` | Azure Active Directory authentication. Optional `tenant_id` field. |
 
+{% callout type="note" title="Managed service metadata is intentionally narrow" %}
+The `auth_providers` block only models the provider types listed above today. Other PostgreSQL-compatible managed services may still work with pgroles, but they are not yet represented as first-class `auth_providers` entries.
+{% /callout %}
+
 ## default_owner
 
 The `default_owner` field specifies which role is used as the owner context for `ALTER DEFAULT PRIVILEGES` statements. This is typically the role that creates objects in your database (e.g. a migration runner or loader role).

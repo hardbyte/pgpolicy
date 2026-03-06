@@ -46,13 +46,20 @@ The `sql` format prints the full SQL script. The `summary` format shows counts o
 
 ### CI drift detection
 
-By default, `diff` exits with code **2** when changes are detected and **0** when the database is in sync. This makes it easy to use as a CI gate:
+By default, `diff` exits with code **2** when changes are detected and **0** when the database is in sync. Command failures still use a normal error exit code. This makes it suitable for CI gates and SRE runbooks:
 
 ```shell
-pgroles diff --database-url postgres://localhost/mydb || echo "Drift detected!"
+if pgroles diff --database-url postgres://localhost/mydb; then
+  echo "database is in sync"
+else
+  case $? in
+    2) echo "drift detected" ;;
+    *) echo "pgroles failed" >&2; exit 1 ;;
+  esac
+fi
 ```
 
-Disable this with `--no-exit-code` if you only want the output without a non-zero exit.
+Disable this with `--no-exit-code` if you only want the output without a non-zero exit on drift.
 
 If the plan includes role drops, `diff` also runs a live safety check and splits the result into:
 
@@ -95,7 +102,9 @@ pgroles apply --database-url postgres://localhost/mydb --dry-run
 
 `apply` executes the plan inside a single database transaction. Individual changes may still render to multiple SQL statements internally, but the whole apply either commits or rolls back together.
 
-Before executing changes, `apply` detects the connecting role's privilege level — true superuser, cloud provider superuser (e.g., `rds_superuser`, `cloudsqlsuperuser`, `azure_pg_admin`), or regular user — and warns about any planned changes that exceed the detected privileges (e.g., setting `SUPERUSER` or `BYPASSRLS` via a cloud admin role).
+Before executing changes, `apply` detects the connecting role's privilege level — true superuser, cloud provider superuser (for the explicitly supported providers), or regular user — and warns about any planned changes that exceed the detected privileges (for example setting `SUPERUSER` or `BYPASSRLS` through a managed-service admin role).
+
+Provider-aware warning logic currently recognizes `rds_superuser`, `cloudsqlsuperuser`, and `azure_pg_admin`. Other PostgreSQL-compatible managed services, including AlloyDB, may still work, but privilege warnings will be generic rather than provider-specific.
 
 {% callout type="note" title="Transactional apply" %}
 If any statement fails during `apply`, the transaction is rolled back and earlier changes from that run are not committed.
@@ -128,6 +137,10 @@ The generated manifest uses no profiles — all roles, grants, default privilege
 
 {% callout type="note" title="Starting point for refinement" %}
 The generated manifest is a flat snapshot of the current state. After generating it, you can reorganize roles into profiles and schemas to take advantage of pgroles' template system.
+{% /callout %}
+
+{% callout type="warning" title="Treat generated manifests as authoritative input" %}
+`generate` is best used as a starting point for brownfield adoption. Before applying the generated manifest in production, review it like any other infrastructure policy because once committed it becomes the desired state.
 {% /callout %}
 
 ## Change ordering
