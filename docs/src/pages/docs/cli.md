@@ -3,7 +3,7 @@ title: CLI commands
 description: Reference for all pgroles CLI commands and options.
 ---
 
-The `pgroles` CLI provides four commands for managing PostgreSQL role policies. {% .lead %}
+The `pgroles` CLI provides five commands for managing PostgreSQL role policies. {% .lead %}
 
 ---
 
@@ -39,9 +39,27 @@ pgroles plan --database-url postgres://localhost/mydb
 |---|---|
 | `-f`, `--file` | Manifest file path (default: `pgroles.yaml`) |
 | `--database-url` | PostgreSQL connection string (or `DATABASE_URL` env) |
-| `--format` | Output format: `sql` (default) or `summary` |
+| `--format` | Output format: `sql` (default), `summary`, or `json` |
+| `--exit-code` | Exit with code 2 when drift is detected (default: `true`) |
 
-The `sql` format prints the full SQL script. The `summary` format shows counts of each change type.
+The `sql` format prints the full SQL script. The `summary` format shows counts of each change type. The `json` format outputs the change list as a JSON array, suitable for CI/CD pipelines and programmatic consumption.
+
+### CI drift detection
+
+By default, `diff` exits with code **2** when changes are detected and **0** when the database is in sync. Command failures still use a normal error exit code. This makes it suitable for CI gates and SRE runbooks:
+
+```shell
+if pgroles diff --database-url postgres://localhost/mydb; then
+  echo "database is in sync"
+else
+  case $? in
+    2) echo "drift detected" ;;
+    *) echo "pgroles failed" >&2; exit 1 ;;
+  esac
+fi
+```
+
+Disable this with `--no-exit-code` if you only want the output without a non-zero exit on drift.
 
 If the plan includes role drops, `diff` also runs a live safety check and splits the result into:
 
@@ -84,6 +102,10 @@ pgroles apply --database-url postgres://localhost/mydb --dry-run
 
 `apply` executes the plan inside a single database transaction. Individual changes may still render to multiple SQL statements internally, but the whole apply either commits or rolls back together.
 
+Before executing changes, `apply` detects the connecting role's privilege level — true superuser, cloud provider superuser (for the explicitly supported providers), or regular user — and warns about any planned changes that exceed the detected privileges (for example setting `SUPERUSER` or `BYPASSRLS` through a managed-service admin role).
+
+Provider-aware warning logic currently recognizes `rds_superuser`, `cloudsqlsuperuser`, `alloydbsuperuser`, and `azure_pg_admin`. Other PostgreSQL-compatible managed services, including Supabase and PlanetScale PostgreSQL, may still work, but privilege warnings will be generic rather than provider-specific.
+
 {% callout type="note" title="Transactional apply" %}
 If any statement fails during `apply`, the transaction is rolled back and earlier changes from that run are not committed.
 {% /callout %}
@@ -101,6 +123,25 @@ pgroles inspect --database-url postgres://localhost/mydb
 ```
 
 This connects to the database, inspects the current roles/grants/memberships that are relevant to the manifest, and prints a summary.
+
+## generate
+
+Generate a YAML manifest from the current database state. This is the primary tool for brownfield adoption — it introspects all non-system roles, their grants, default privileges, and memberships, then emits a flat manifest (no profiles) that faithfully reproduces the current state.
+
+```shell
+pgroles generate --database-url postgres://localhost/mydb
+pgroles generate --database-url postgres://localhost/mydb > policy.yaml
+```
+
+The generated manifest uses no profiles — all roles, grants, default privileges, and memberships are emitted as top-level entries. When applied back to the same database, it should produce zero diff.
+
+{% callout type="note" title="Starting point for refinement" %}
+The generated manifest is a flat snapshot of the current state. After generating it, you can reorganize roles into profiles and schemas to take advantage of pgroles' template system.
+{% /callout %}
+
+{% callout type="warning" title="Treat generated manifests as authoritative input" %}
+`generate` is best used as a starting point for brownfield adoption. Before applying the generated manifest in production, review it like any other infrastructure policy because once committed it becomes the desired state.
+{% /callout %}
 
 ## Change ordering
 

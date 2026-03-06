@@ -4,13 +4,15 @@ Stop managing PostgreSQL roles with ad-hoc SQL. Define them in YAML, diff agains
 
 pgroles treats your manifest as the **entire desired state** — roles, grants, and memberships not in the manifest get revoked or dropped. This is the same convergent model used by Terraform and Kubernetes, applied to PostgreSQL access control.
 
-> **Requires PostgreSQL 16+** (uses `GRANT ... WITH INHERIT` syntax).
+> **Best with PostgreSQL 16+**. Supports PostgreSQL 14+ with version-adaptive SQL generation.
 
 ## Compatibility
 
-- Supports PostgreSQL **16 and newer**
+- **PostgreSQL 16+**: Full support including `GRANT ... WITH INHERIT`/`WITH ADMIN` syntax
+- **PostgreSQL 14–15**: Supported with automatic fallback to legacy grant syntax (`WITH ADMIN OPTION`)
 - CI integration tests run against PostgreSQL **16, 17, and 18**
-- PostgreSQL 15 and earlier are not supported
+- Provider-aware privilege warnings currently recognize **AWS RDS/Aurora**, **Google Cloud SQL**, **AlloyDB**, and **Azure Database for PostgreSQL**.
+- Manifest metadata also supports **Supabase** and **PlanetScale PostgreSQL**, but those variants are currently informational only.
 
 ## Quick Start
 
@@ -35,9 +37,20 @@ pgroles apply -f policy.yaml --database-url postgres://... --dry-run
 
 # Inspect current database state for managed roles
 pgroles inspect -f policy.yaml --database-url postgres://...
+
+# Generate a manifest from an existing database (brownfield adoption)
+pgroles generate --database-url postgres://...
+
+# Output the diff as JSON (for CI/CD pipelines)
+pgroles diff -f policy.yaml --database-url postgres://... --format json
+
+# Use as a CI drift gate (exits with code 2 when drift is detected)
+pgroles diff -f policy.yaml --database-url postgres://... --exit-code
 ```
 
 If `-f` is omitted, it defaults to `pgroles.yaml` in the current directory. The `--database-url` flag can also be set via the `DATABASE_URL` environment variable.
+
+If you are adopting an existing database rather than starting greenfield, begin with `pgroles generate` and then refine the generated flat manifest into profiles and schema bindings.
 
 Example `pgroles diff` output:
 
@@ -152,6 +165,32 @@ That expands the inspection scope to include `legacy_app` even though it is no l
 
 Cleanup is still scoped to the current database plus shared objects. If the preflight reports dependencies in other databases, run the same cleanup against those databases before the final drop.
 
+## Operational Boundaries
+
+- One manifest converges one PostgreSQL connection target.
+- `pgroles` is authoritative within the roles, grants, default privileges, and memberships it inspects for that manifest.
+- Retirement cleanup (`REASSIGN OWNED` / `DROP OWNED`) only covers the current database plus shared objects.
+- Managed PostgreSQL is supported at the PostgreSQL protocol/DDL level, but provider-specific warning logic is only explicit for RDS/Aurora, Cloud SQL, AlloyDB, and Azure today. Other services, including Supabase and PlanetScale PostgreSQL, are not yet special-cased.
+
+## CI/CD
+
+`pgroles diff` is designed to work as a drift gate:
+
+- Exit code `0`: database is in sync
+- Exit code `2`: drift detected
+- Any other non-zero exit: command or connectivity failure
+
+```bash
+if pgroles diff -f policy.yaml --database-url "$DATABASE_URL"; then
+  echo "database is in sync"
+else
+  case $? in
+    2) echo "drift detected" ;;
+    *) echo "pgroles failed" >&2; exit 1 ;;
+  esac
+fi
+```
+
 ## Installation
 
 ### From source
@@ -173,7 +212,7 @@ Download pre-built binaries from the [releases page](https://github.com/hardbyte
 ### Docker
 
 ```bash
-docker run --rm ghcr.io/hardbyte/pgroles:0.1.0 --help
+docker run --rm ghcr.io/hardbyte/pgroles:0.1.1 --help
 ```
 
 ## Local Testing
@@ -187,6 +226,28 @@ export DATABASE_URL=postgres://postgres:testpassword@localhost:5432/pgroles_test
 cargo test --workspace -- --include-ignored
 ```
 
+### Local Docker Repro
+
+```bash
+docker run --rm --name pgroles-pg16 \
+  -e POSTGRES_PASSWORD=testpassword \
+  -e POSTGRES_DB=pgroles_test \
+  -p 5432:5432 \
+  postgres:16
+```
+
+In another shell:
+
+```bash
+export DATABASE_URL=postgres://postgres:testpassword@localhost:5432/pgroles_test
+
+# Reproduce the CLI live-db tests locally
+cargo test -p pgroles-cli --test cli live_db::diff_against_live_db -- --ignored --exact
+cargo test -p pgroles-cli --test cli live_db::diff_summary_format -- --ignored --exact
+```
+
+Swap the image tag to `postgres:17` or `postgres:18` to mirror the CI integration matrix.
+
 ### Kubernetes Operator *(work in progress)*
 
 Install via Helm:
@@ -198,9 +259,9 @@ helm install pgroles-operator pgroles/pgroles-operator
 
 ## Components
 
-- **pgroles-core** — Manifest parsing, profile expansion, diff engine, SQL generation. No database dependencies.
-- **pgroles-inspect** — Live database introspection via `pg_catalog` queries (sqlx + tokio).
-- **pgroles-cli** — Command-line tool for validating manifests, planning changes, and applying them.
+- **pgroles-core** — Manifest parsing, profile expansion, diff engine, SQL generation, and manifest export. No database dependencies. Includes version-aware SQL rendering via `SqlContext`.
+- **pgroles-inspect** — Live database introspection via `pg_catalog` queries (sqlx + tokio). Includes PostgreSQL version detection, cloud provider detection (RDS, Cloud SQL, Azure), and privilege level assessment.
+- **pgroles-cli** — Command-line tool for validating manifests, planning changes, applying them, and generating manifests from existing databases.
 - **pgroles-operator** — *(work in progress)* Kubernetes operator that reconciles `PostgresPolicy` custom resources against PostgreSQL databases.
 
 ## License

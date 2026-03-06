@@ -1,11 +1,15 @@
 [package]
 name = "pgroles-cli"
-description = "CLI tool for pgroles — validate, diff, plan, and apply PostgreSQL role policies"
+description = "CLI for pgroles — validate, diff, apply, inspect, and generate role policies"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [[bin]]
 name = "pgroles"
@@ -16,6 +20,8 @@ pgroles-core = { workspace = true }
 pgroles-inspect = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

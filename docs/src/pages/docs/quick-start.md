@@ -9,7 +9,8 @@ Get up and running with pgroles in a few minutes. {% .lead %}
 
 ## Prerequisites
 
-- **PostgreSQL 16+** (pgroles uses `GRANT ... WITH INHERIT` syntax from PG 16)
+- **PostgreSQL 14+** (pgroles adapts membership SQL to the server version at runtime)
+- **PostgreSQL 16+** recommended for full per-membership `INHERIT` support
 - CI coverage currently runs integration tests on PostgreSQL **16, 17, and 18**
 - **Rust toolchain** (for building from source)
 
@@ -22,6 +23,10 @@ cargo install --git https://github.com/hardbyte/pgroles pgroles-cli
 ```
 
 This installs the `pgroles` binary.
+
+{% callout type="note" title="Starting from an existing database?" %}
+Use `pgroles generate --database-url ... > pgroles.yaml` first, then refine the generated flat manifest into profiles and schema bindings.
+{% /callout %}
 
 ## Create a manifest
 

@@ -116,6 +116,10 @@ pub struct PolicyManifest {
     #[serde(default)]
     pub default_owner: Option<String>,
 
+    /// Cloud auth provider configurations for IAM-mapped role awareness.
+    #[serde(default)]
+    pub auth_providers: Vec<AuthProvider>,
+
     /// Reusable privilege profiles.
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
@@ -143,6 +147,58 @@ pub struct PolicyManifest {
     /// Explicit role-retirement workflows for roles that should be removed.
     #[serde(default)]
     pub retirements: Vec<RoleRetirement>,
+}
+
+/// Cloud authentication provider configuration.
+///
+/// Declares awareness of cloud IAM-mapped roles so pgroles can correctly
+/// reference auto-created role names in grants and memberships.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AuthProvider {
+    /// Google Cloud SQL IAM authentication.
+    /// Service accounts map to PG roles like `user@project.iam`.
+    CloudSqlIam {
+        /// GCP project ID (for documentation/validation).
+        #[serde(default)]
+        project: Option<String>,
+    },
+    /// Google AlloyDB IAM authentication.
+    /// IAM users and groups map to PostgreSQL roles managed by AlloyDB.
+    #[serde(rename = "alloydb_iam")]
+    AlloyDbIam {
+        /// GCP project ID (for documentation/validation).
+        #[serde(default)]
+        project: Option<String>,
+        /// AlloyDB cluster name (for documentation/validation).
+        #[serde(default)]
+        cluster: Option<String>,
+    },
+    /// AWS RDS IAM authentication.
+    /// IAM users authenticate via token; the PG role must have `rds_iam` granted.
+    RdsIam {
+        /// AWS region (for documentation/validation).
+        #[serde(default)]
+        region: Option<String>,
+    },
+    /// Azure Entra ID (AAD) authentication for Azure Database for PostgreSQL.
+    AzureAd {
+        /// Azure tenant ID (for documentation/validation).
+        #[serde(default)]
+        tenant_id: Option<String>,
+    },
+    /// Supabase-managed PostgreSQL authentication.
+    Supabase {
+        /// Supabase project ref (for documentation/validation).
+        #[serde(default)]
+        project_ref: Option<String>,
+    },
+    /// PlanetScale PostgreSQL authentication metadata.
+    PlanetScale {
+        /// PlanetScale organization (for documentation/validation).
+        #[serde(default)]
+        organization: Option<String>,
+    },
 }
 
 /// A reusable privilege profile — defines what grants a role should have.
@@ -884,5 +940,67 @@ retirements:
             result,
             Err(ManifestError::RetirementSelfReassign { role }) if role == "old-app"
         ));
+    }
+
+    #[test]
+    fn parse_auth_providers() {
+        let yaml = r#"
+auth_providers:
+  - type: cloud_sql_iam
+    project: my-gcp-project
+  - type: alloydb_iam
+    project: my-gcp-project
+    cluster: analytics-prod
+  - type: rds_iam
+    region: us-east-1
+  - type: azure_ad
+    tenant_id: "abc-123"
+  - type: supabase
+    project_ref: myprojref
+  - type: planet_scale
+    organization: my-org
+
+roles:
+  - name: app-service
+"#;
+        let manifest = parse_manifest(yaml).unwrap();
+        assert_eq!(manifest.auth_providers.len(), 6);
+        assert!(matches!(
+            &manifest.auth_providers[0],
+            AuthProvider::CloudSqlIam { project: Some(p) } if p == "my-gcp-project"
+        ));
+        assert!(matches!(
+            &manifest.auth_providers[1],
+            AuthProvider::AlloyDbIam {
+                project: Some(p),
+                cluster: Some(c)
+            } if p == "my-gcp-project" && c == "analytics-prod"
+        ));
+        assert!(matches!(
+            &manifest.auth_providers[2],
+            AuthProvider::RdsIam { region: Some(r) } if r == "us-east-1"
+        ));
+        assert!(matches!(
+            &manifest.auth_providers[3],
+            AuthProvider::AzureAd { tenant_id: Some(t) } if t == "abc-123"
+        ));
+        assert!(matches!(
+            &manifest.auth_providers[4],
+            AuthProvider::Supabase { project_ref: Some(r) } if r == "myprojref"
+        ));
+        assert!(matches!(
+            &manifest.auth_providers[5],
+            AuthProvider::PlanetScale { organization: Some(o) } if o == "my-org"
+        ));
+    }
+
+    #[test]
+    fn parse_manifest_without_auth_providers() {
+        let yaml = r#"
+roles:
+  - name: test-role
+"#;
+        let manifest = parse_manifest(yaml).unwrap();
+        assert!(manifest.auth_providers.is_empty());
     }
 }

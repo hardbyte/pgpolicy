@@ -57,6 +57,13 @@ operator:
 
 The operator runs as `nobody` (UID 65534) with a read-only root filesystem, no capabilities, and seccomp enabled by default.
 
+## Operational guidance
+
+- Use one `PostgresPolicy` per database and credential boundary.
+- Prefer a dedicated management role rather than an application login for reconciliation.
+- Validate and review the manifest with the CLI before handing it to the operator.
+- Treat deletion as "stop managing", not "revert the database".
+
 ## Custom resource
 
 A `PostgresPolicy` spec mirrors the CLI manifest format with added Kubernetes-specific fields for connection and scheduling.
