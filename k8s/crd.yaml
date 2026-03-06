@@ -36,7 +36,7 @@
             "description": "Auto-generated derived type for PostgresPolicySpec via `CustomResource`",
             "properties": {
               "spec": {
-                "description": "Spec for a `PostgresPolicy` custom resource.\n\nDefines the desired state of PostgreSQL roles, grants, default privileges, and memberships for a single database connection.",
+                "description": "Spec for a `PostgresPolicy` custom resource.\n\nDefines the desired state of PostgreSQL roles, grants, default privileges,\nand memberships for a single database connection.",
                 "properties": {
                   "connection": {
                     "description": "Database connection configuration.",
@@ -47,7 +47,7 @@
                         "type": "string"
                       },
                       "secretRef": {
-                        "description": "Reference to a Kubernetes Secret containing the connection string. The secret must have a key named `DATABASE_URL`.",
+                        "description": "Reference to a Kubernetes Secret containing the connection string.\nThe secret must have a key named `DATABASE_URL`.",
                         "properties": {
                           "name": {
                             "description": "Name of the Secret.",
@@ -116,7 +116,7 @@
                                 "type": "array"
                               },
                               "role": {
-                                "description": "The role receiving the default privilege. Only used in top-level default_privileges (in profiles, the role is determined by expansion).",
+                                "description": "The role receiving the default privilege. Only used in top-level default_privileges\n(in profiles, the role is determined by expansion).",
                                 "nullable": true,
                                 "type": "string"
                               }
@@ -471,7 +471,7 @@
                         },
                         "role_pattern": {
                           "default": "{schema}-{profile}",
-                          "description": "Role naming pattern. Supports `{schema}` and `{profile}` placeholders. Defaults to `\"{schema}-{profile}\"`.",
+                          "description": "Role naming pattern. Supports `{schema}` and `{profile}` placeholders.\nDefaults to `\"{schema}-{profile}\"`.",
                           "type": "string"
                         }
                       },

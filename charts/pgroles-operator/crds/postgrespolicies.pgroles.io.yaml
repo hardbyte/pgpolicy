@@ -29,17 +29,23 @@ spec:
             description: 'Spec for a `PostgresPolicy` custom resource.
 
 
-              Defines the desired state of PostgreSQL roles, grants, default privileges, and memberships for a single database connection.'
+              Defines the desired state of PostgreSQL roles, grants, default privileges,
+
+              and memberships for a single database connection.'
             properties:
               connection:
                 description: Database connection configuration.
                 properties:
                   secretKey:
                     default: DATABASE_URL
-                    description: Override the key in the Secret to read. Defaults to `DATABASE_URL`.
+                    description: Override the key in the Secret to read. Defaults
+                      to `DATABASE_URL`.
                     type: string
                   secretRef:
-                    description: Reference to a Kubernetes Secret containing the connection string. The secret must have a key named `DATABASE_URL`.
+                    description: 'Reference to a Kubernetes Secret containing the
+                      connection string.
+
+                      The secret must have a key named `DATABASE_URL`.'
                     properties:
                       name:
                         description: Name of the Secret.
@@ -65,7 +71,8 @@ spec:
                         description: A single default privilege grant entry.
                         properties:
                           on_type:
-                            description: PostgreSQL object types that can have privileges granted on them.
+                            description: PostgreSQL object types that can have privileges
+                              granted on them.
                             enum:
                             - table
                             - view
@@ -95,7 +102,10 @@ spec:
                               type: string
                             type: array
                           role:
-                            description: The role receiving the default privilege. Only used in top-level default_privileges (in profiles, the role is determined by expansion).
+                            description: 'The role receiving the default privilege.
+                              Only used in top-level default_privileges
+
+                              (in profiles, the role is determined by expansion).'
                             nullable: true
                             type: string
                         required:
@@ -104,7 +114,8 @@ spec:
                         type: object
                       type: array
                     owner:
-                      description: The role that owns newly created objects. If omitted, uses manifest's default_owner.
+                      description: The role that owns newly created objects. If omitted,
+                        uses manifest's default_owner.
                       nullable: true
                       type: string
                     schema:
@@ -124,15 +135,18 @@ spec:
                       description: Target object for a grant.
                       properties:
                         name:
-                          description: Object name, or "*" for all objects. Omit for schema-level grants.
+                          description: Object name, or "*" for all objects. Omit for
+                            schema-level grants.
                           nullable: true
                           type: string
                         schema:
-                          description: Schema name. Required for most object types except database.
+                          description: Schema name. Required for most object types
+                            except database.
                           nullable: true
                           type: string
                         type:
-                          description: PostgreSQL object types that can have privileges granted on them.
+                          description: PostgreSQL object types that can have privileges
+                            granted on them.
                           enum:
                           - table
                           - view
@@ -174,13 +188,15 @@ spec:
                 type: array
               interval:
                 default: 5m
-                description: Reconciliation interval (e.g. "5m", "1h"). Defaults to "5m".
+                description: Reconciliation interval (e.g. "5m", "1h"). Defaults to
+                  "5m".
                 type: string
               memberships:
                 default: []
                 description: Membership edges.
                 items:
-                  description: "A membership declaration \u2014 which members belong to a role."
+                  description: "A membership declaration \u2014 which members belong\
+                    \ to a role."
                   properties:
                     members:
                       items:
@@ -218,7 +234,8 @@ spec:
                         description: Default privilege grant within a profile.
                         properties:
                           on_type:
-                            description: PostgreSQL object types that can have privileges granted on them.
+                            description: PostgreSQL object types that can have privileges
+                              granted on them.
                             enum:
                             - table
                             - view
@@ -267,7 +284,8 @@ spec:
                                 nullable: true
                                 type: string
                               type:
-                                description: PostgreSQL object types that can have privileges granted on them.
+                                description: PostgreSQL object types that can have
+                                  privileges granted on them.
                                 enum:
                                 - table
                                 - view
@@ -355,12 +373,14 @@ spec:
                 default: []
                 description: Schema bindings that expand profiles into concrete roles/grants.
                 items:
-                  description: "A schema binding \u2014 associates a schema with one or more profiles."
+                  description: "A schema binding \u2014 associates a schema with one\
+                    \ or more profiles."
                   properties:
                     name:
                       type: string
                     owner:
-                      description: Override default_owner for this schema's default privileges.
+                      description: Override default_owner for this schema's default
+                        privileges.
                       nullable: true
                       type: string
                     profiles:
@@ -369,7 +389,10 @@ spec:
                       type: array
                     role_pattern:
                       default: '{schema}-{profile}'
-                      description: Role naming pattern. Supports `{schema}` and `{profile}` placeholders. Defaults to `"{schema}-{profile}"`.
+                      description: 'Role naming pattern. Supports `{schema}` and `{profile}`
+                        placeholders.
+
+                        Defaults to `"{schema}-{profile}"`.'
                       type: string
                   required:
                   - name
@@ -467,7 +490,8 @@ spec:
                 nullable: true
                 type: string
               observed_generation:
-                description: The `.metadata.generation` that was last successfully reconciled.
+                description: The `.metadata.generation` that was last successfully
+                  reconciled.
                 format: int64
                 nullable: true
                 type: integer
@@ -480,3 +504,4 @@ spec:
     storage: true
     subresources:
       status: {}
+
