@@ -9,10 +9,11 @@
 //!   x = REFERENCES, t = TRIGGER, X = EXECUTE, U = USAGE, C = CREATE,
 //!   c = CONNECT, T = TEMPORARY
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sqlx::PgPool;
 
+use crate::WildcardGrantPattern;
 use pgpolicy_core::manifest::{ObjectType, Privilege};
 use pgpolicy_core::model::{GrantKey, GrantState};
 
@@ -77,7 +78,17 @@ pub async fn fetch_privileges(
     managed_schemas: &[&str],
     managed_roles: &[&str],
 ) -> Result<BTreeMap<GrantKey, GrantState>, sqlx::Error> {
+    fetch_privileges_with_wildcards(pool, managed_schemas, managed_roles, &[]).await
+}
+
+pub(crate) async fn fetch_privileges_with_wildcards(
+    pool: &PgPool,
+    managed_schemas: &[&str],
+    managed_roles: &[&str],
+    wildcard_grants: &[WildcardGrantPattern],
+) -> Result<BTreeMap<GrantKey, GrantState>, sqlx::Error> {
     let mut grants: BTreeMap<GrantKey, GrantState> = BTreeMap::new();
+    let mut inventory: BTreeMap<(ObjectType, String), BTreeSet<String>> = BTreeMap::new();
 
     // Run all the independent queries and collect results.
     // We use separate queries per object type rather than one giant UNION
@@ -88,11 +99,24 @@ pub async fn fetch_privileges(
     let function_rows = fetch_function_privileges(pool, managed_schemas).await?;
     let type_rows = fetch_type_privileges(pool, managed_schemas).await?;
 
-    let all_rows = relation_rows
+    let all_rows: Vec<AclRow> = relation_rows
         .into_iter()
         .chain(schema_rows)
         .chain(function_rows)
-        .chain(type_rows);
+        .chain(type_rows)
+        .collect();
+
+    for row in &all_rows {
+        if let Some(object_type) = obj_type_str_to_object_type(&row.obj_type)
+            && !matches!(object_type, ObjectType::Schema | ObjectType::Database)
+            && let Some(schema_name) = &row.schema_name
+        {
+            inventory
+                .entry((object_type, schema_name.clone()))
+                .or_default()
+                .insert(row.object_name.clone());
+        }
+    }
 
     for row in all_rows {
         // Skip PUBLIC grantee (NULL)
@@ -134,12 +158,113 @@ pub async fn fetch_privileges(
         };
 
         let entry = grants.entry(key).or_insert_with(|| GrantState {
-            privileges: std::collections::BTreeSet::new(),
+            privileges: BTreeSet::new(),
         });
         entry.privileges.insert(privilege);
     }
 
-    Ok(grants)
+    Ok(normalize_wildcard_grants(
+        grants,
+        &inventory,
+        wildcard_grants,
+    ))
+}
+
+fn normalize_wildcard_grants(
+    mut grants: BTreeMap<GrantKey, GrantState>,
+    inventory: &BTreeMap<(ObjectType, String), BTreeSet<String>>,
+    wildcard_grants: &[WildcardGrantPattern],
+) -> BTreeMap<GrantKey, GrantState> {
+    for wildcard in wildcard_grants {
+        let Some(object_names) = inventory.get(&(wildcard.object_type, wildcard.schema.clone()))
+        else {
+            continue;
+        };
+
+        if object_names.is_empty() {
+            continue;
+        }
+
+        let mut shared_privileges = all_privileges();
+
+        for object_name in object_names {
+            let key = GrantKey {
+                role: wildcard.role.clone(),
+                object_type: wildcard.object_type,
+                schema: Some(wildcard.schema.clone()),
+                name: Some(object_name.clone()),
+            };
+
+            if let Some(state) = grants.get(&key) {
+                shared_privileges.retain(|privilege| state.privileges.contains(privilege));
+            } else {
+                shared_privileges.clear();
+                break;
+            }
+        }
+
+        if shared_privileges.is_empty() {
+            continue;
+        }
+
+        let wildcard_key = GrantKey {
+            role: wildcard.role.clone(),
+            object_type: wildcard.object_type,
+            schema: Some(wildcard.schema.clone()),
+            name: Some("*".to_string()),
+        };
+
+        grants.insert(
+            wildcard_key,
+            GrantState {
+                privileges: shared_privileges.clone(),
+            },
+        );
+
+        for object_name in object_names {
+            let key = GrantKey {
+                role: wildcard.role.clone(),
+                object_type: wildcard.object_type,
+                schema: Some(wildcard.schema.clone()),
+                name: Some(object_name.clone()),
+            };
+
+            let remove_key = match grants.get_mut(&key) {
+                Some(state) => {
+                    state
+                        .privileges
+                        .retain(|privilege| !shared_privileges.contains(privilege));
+                    state.privileges.is_empty()
+                }
+                None => false,
+            };
+
+            if remove_key {
+                grants.remove(&key);
+            }
+        }
+    }
+
+    grants
+}
+
+fn all_privileges() -> BTreeSet<Privilege> {
+    [
+        Privilege::Select,
+        Privilege::Insert,
+        Privilege::Update,
+        Privilege::Delete,
+        Privilege::Truncate,
+        Privilege::References,
+        Privilege::Trigger,
+        Privilege::Execute,
+        Privilege::Usage,
+        Privilege::Create,
+        Privilege::Connect,
+        Privilege::Temporary,
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// Fetch privileges on tables, views, materialized views, and sequences.
@@ -367,6 +492,7 @@ pub async fn fetch_database_privileges(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::WildcardGrantPattern;
 
     #[test]
     fn acl_char_mapping_covers_all_privileges() {
@@ -415,5 +541,64 @@ mod tests {
             );
         }
         assert_eq!(obj_type_str_to_object_type("unknown"), None);
+    }
+
+    #[test]
+    fn wildcard_normalization_promotes_shared_table_privileges() {
+        let mut grants = BTreeMap::new();
+        grants.insert(
+            GrantKey {
+                role: "inventory-editor".to_string(),
+                object_type: ObjectType::Table,
+                schema: Some("inventory".to_string()),
+                name: Some("widgets".to_string()),
+            },
+            GrantState {
+                privileges: [Privilege::Select, Privilege::Insert].into_iter().collect(),
+            },
+        );
+        grants.insert(
+            GrantKey {
+                role: "inventory-editor".to_string(),
+                object_type: ObjectType::Table,
+                schema: Some("inventory".to_string()),
+                name: Some("orders".to_string()),
+            },
+            GrantState {
+                privileges: [Privilege::Select].into_iter().collect(),
+            },
+        );
+
+        let inventory = BTreeMap::from([(
+            (ObjectType::Table, "inventory".to_string()),
+            BTreeSet::from(["orders".to_string(), "widgets".to_string()]),
+        )]);
+        let selectors = vec![WildcardGrantPattern {
+            role: "inventory-editor".to_string(),
+            object_type: ObjectType::Table,
+            schema: "inventory".to_string(),
+        }];
+
+        let normalized = normalize_wildcard_grants(grants, &inventory, &selectors);
+
+        let wildcard = normalized
+            .get(&GrantKey {
+                role: "inventory-editor".to_string(),
+                object_type: ObjectType::Table,
+                schema: Some("inventory".to_string()),
+                name: Some("*".to_string()),
+            })
+            .expect("wildcard grant should be synthesized");
+        assert_eq!(wildcard.privileges, BTreeSet::from([Privilege::Select]));
+
+        let specific = normalized
+            .get(&GrantKey {
+                role: "inventory-editor".to_string(),
+                object_type: ObjectType::Table,
+                schema: Some("inventory".to_string()),
+                name: Some("widgets".to_string()),
+            })
+            .expect("extra object-specific privileges should remain");
+        assert_eq!(specific.privileges, BTreeSet::from([Privilege::Insert]));
     }
 }

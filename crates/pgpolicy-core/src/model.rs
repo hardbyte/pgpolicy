@@ -199,7 +199,10 @@ impl RoleGraph {
     ///
     /// This converts the manifest's user-facing types into the normalized model
     /// that the diff engine operates on.
-    pub fn from_expanded(expanded: &ExpandedManifest, default_owner: Option<&str>) -> Self {
+    pub fn from_expanded(
+        expanded: &ExpandedManifest,
+        default_owner: Option<&str>,
+    ) -> Result<Self, crate::manifest::ManifestError> {
         let mut graph = Self::default();
 
         // --- Roles ---
@@ -229,10 +232,11 @@ impl RoleGraph {
                 .to_string();
 
             for grant in &default_priv.grant {
-                let grantee = grant
-                    .role
-                    .clone()
-                    .expect("expanded default privilege grant must have a role");
+                let grantee = grant.role.clone().ok_or_else(|| {
+                    crate::manifest::ManifestError::MissingDefaultPrivilegeRole {
+                        schema: default_priv.schema.clone(),
+                    }
+                })?;
 
                 let key = DefaultPrivKey {
                     owner: owner.clone(),
@@ -266,7 +270,7 @@ impl RoleGraph {
             }
         }
 
-        graph
+        Ok(graph)
     }
 }
 
@@ -423,7 +427,7 @@ memberships:
 "#;
         let manifest = parse_manifest(yaml).unwrap();
         let expanded = expand_manifest(&manifest).unwrap();
-        let graph = RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref());
+        let graph = RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref()).unwrap();
 
         // Two roles: inventory-editor (from profile) + analytics (one-off)
         assert_eq!(graph.roles.len(), 2);
@@ -473,7 +477,7 @@ grants:
 "#;
         let manifest = parse_manifest(yaml).unwrap();
         let expanded = expand_manifest(&manifest).unwrap();
-        let graph = RoleGraph::from_expanded(&expanded, None);
+        let graph = RoleGraph::from_expanded(&expanded, None).unwrap();
 
         // Both grants target the same key, so privileges should merge
         assert_eq!(graph.grants.len(), 1);

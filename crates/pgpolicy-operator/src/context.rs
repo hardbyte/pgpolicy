@@ -6,14 +6,20 @@ use std::sync::Arc;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
 
+#[derive(Clone)]
+struct CachedPool {
+    resource_version: Option<String>,
+    pool: PgPool,
+}
+
 /// Shared state for the operator, passed to every reconciliation.
 #[derive(Clone)]
 pub struct OperatorContext {
     /// Kubernetes client for API calls.
     pub kube_client: kube::Client,
 
-    /// Cached database connection pools keyed by `"namespace/secret-name"`.
-    pub pool_cache: Arc<RwLock<HashMap<String, PgPool>>>,
+    /// Cached database connection pools keyed by `"namespace/secret-name/secret-key"`.
+    pool_cache: Arc<RwLock<HashMap<String, CachedPool>>>,
 }
 
 impl OperatorContext {
@@ -35,15 +41,7 @@ impl OperatorContext {
         secret_name: &str,
         secret_key: &str,
     ) -> Result<PgPool, ContextError> {
-        let cache_key = format!("{namespace}/{secret_name}");
-
-        // Check cache first (read lock).
-        {
-            let cache = self.pool_cache.read().await;
-            if let Some(pool) = cache.get(&cache_key) {
-                return Ok(pool.clone());
-            }
-        }
+        let cache_key = format!("{namespace}/{secret_name}/{secret_key}");
 
         // Fetch secret from k8s API.
         let secrets_api: kube::Api<k8s_openapi::api::core::v1::Secret> =
@@ -58,6 +56,18 @@ impl OperatorContext {
                     namespace: namespace.to_string(),
                     source: err,
                 })?;
+
+        let resource_version = secret.metadata.resource_version.clone();
+
+        // Check cache after reading the current Secret version.
+        {
+            let cache = self.pool_cache.read().await;
+            if let Some(cached) = cache.get(&cache_key)
+                && cached.resource_version == resource_version
+            {
+                return Ok(cached.pool.clone());
+            }
+        }
 
         let data = secret.data.ok_or_else(|| ContextError::SecretMissing {
             name: secret_name.to_string(),
@@ -85,15 +95,21 @@ impl OperatorContext {
         // Cache it (write lock).
         {
             let mut cache = self.pool_cache.write().await;
-            cache.insert(cache_key, pool.clone());
+            cache.insert(
+                cache_key,
+                CachedPool {
+                    resource_version,
+                    pool: pool.clone(),
+                },
+            );
         }
 
         Ok(pool)
     }
 
     /// Remove a cached pool (e.g. when secret changes or CR is deleted).
-    pub async fn evict_pool(&self, namespace: &str, secret_name: &str) {
-        let cache_key = format!("{namespace}/{secret_name}");
+    pub async fn evict_pool(&self, namespace: &str, secret_name: &str, secret_key: &str) {
+        let cache_key = format!("{namespace}/{secret_name}/{secret_key}");
         let mut cache = self.pool_cache.write().await;
         cache.remove(&cache_key);
     }
@@ -120,8 +136,8 @@ pub enum ContextError {
 mod tests {
     #[test]
     fn pool_cache_key_format() {
-        // Verify the cache key format is "namespace/secret-name"
-        let key = format!("{}/{}", "prod", "pg-credentials");
-        assert_eq!(key, "prod/pg-credentials");
+        // Verify the cache key format is "namespace/secret-name/secret-key"
+        let key = format!("{}/{}/{}", "prod", "pg-credentials", "DATABASE_URL");
+        assert_eq!(key, "prod/pg-credentials/DATABASE_URL");
     }
 }

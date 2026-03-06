@@ -14,7 +14,8 @@ use tracing::info;
 
 use crate::context::{ContextError, OperatorContext};
 use crate::crd::{
-    ChangeSummary, PostgresPolicy, PostgresPolicyStatus, ready_condition, reconciling_condition,
+    ChangeSummary, PostgresPolicy, PostgresPolicyStatus, degraded_condition, ready_condition,
+    reconciling_condition,
 };
 
 /// Finalizer name for PostgresPolicy resources.
@@ -135,6 +136,31 @@ async fn reconcile_apply(
     resource: &PostgresPolicy,
     ctx: &OperatorContext,
 ) -> Result<Action, ReconcileError> {
+    match reconcile_apply_inner(resource, ctx).await {
+        Ok(action) => Ok(action),
+        Err(err) => {
+            let error_message = err.to_string();
+            if let Err(status_err) = update_status(ctx, resource, |status| {
+                status.set_condition(ready_condition(false, "ReconcileFailed", &error_message));
+                status.set_condition(degraded_condition("ReconcileFailed", &error_message));
+                status
+                    .conditions
+                    .retain(|c| c.condition_type != "Reconciling");
+                status.change_summary = None;
+            })
+            .await
+            {
+                tracing::warn!(%status_err, "failed to update degraded status");
+            }
+            Err(err)
+        }
+    }
+}
+
+async fn reconcile_apply_inner(
+    resource: &PostgresPolicy,
+    ctx: &OperatorContext,
+) -> Result<Action, ReconcileError> {
     let name = resource.name_any();
     let namespace = resource.namespace().ok_or(ReconcileError::NoNamespace)?;
 
@@ -163,7 +189,7 @@ async fn reconcile_apply(
 
     // 3. Build desired RoleGraph from expanded manifest.
     let default_owner = manifest.default_owner.as_deref();
-    let desired = pgpolicy_core::model::RoleGraph::from_expanded(&expanded, default_owner);
+    let desired = pgpolicy_core::model::RoleGraph::from_expanded(&expanded, default_owner)?;
 
     // 4. Get a database pool.
     let pool = ctx
@@ -196,12 +222,14 @@ async fn reconcile_apply(
     } else {
         info!(name, namespace, count = changes.len(), "applying changes");
 
+        let mut transaction = pool.begin().await?;
         for change in &changes {
             let sql = pgpolicy_core::sql::render(change);
             tracing::debug!(%sql, "executing");
-            sqlx::query(&sql).execute(&pool).await?;
+            sqlx::query(&sql).execute(transaction.as_mut()).await?;
             accumulate_summary(&mut summary, change);
         }
+        transaction.commit().await?;
 
         summary.total = summary.roles_created
             + summary.roles_altered
@@ -249,8 +277,12 @@ async fn reconcile_cleanup(
     info!(name, namespace, "cleaning up (resource deleted)");
 
     // Evict any cached pool for this resource's secret.
-    ctx.evict_pool(&namespace, &resource.spec.connection.secret_ref.name)
-        .await;
+    ctx.evict_pool(
+        &namespace,
+        &resource.spec.connection.secret_ref.name,
+        &resource.spec.connection.secret_key,
+    )
+    .await;
 
     // Note: we do NOT revoke grants on deletion. The resource being deleted
     // means the user no longer wants pgpolicy to manage these roles — it does

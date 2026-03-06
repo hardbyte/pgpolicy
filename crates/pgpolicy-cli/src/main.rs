@@ -193,16 +193,21 @@ async fn cmd_apply(file: &Path, database_url: &str, dry_run: bool) -> Result<()>
         return Ok(());
     }
 
-    // Execute each change as a separate statement.
+    // Execute the entire plan in one transaction to avoid partial convergence.
     info!(changes = summary.total(), "applying changes");
+    let mut transaction = pool.begin().await.context("failed to start transaction")?;
     for change in &changes {
         let statement = pgpolicy_core::sql::render(change);
         info!(sql = %statement, "executing");
         sqlx::query(&statement)
-            .execute(&pool)
+            .execute(transaction.as_mut())
             .await
             .with_context(|| format!("failed to execute: {statement}"))?;
     }
+    transaction
+        .commit()
+        .await
+        .context("failed to commit transaction")?;
 
     println!(
         "Applied {total} change(s) successfully.",

@@ -20,6 +20,9 @@ pub enum ManifestError {
 
     #[error("role_pattern must contain {{profile}} placeholder, got: \"{0}\"")]
     InvalidRolePattern(String),
+
+    #[error("top-level default privilege for schema \"{schema}\" must specify grant.role")]
+    MissingDefaultPrivilegeRole { schema: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +403,17 @@ pub fn expand_manifest(manifest: &PolicyManifest) -> Result<ExpandedManifest, Ma
         }
     }
 
+    // Top-level default privileges must always identify the grantee role.
+    for default_priv in &manifest.default_privileges {
+        for grant in &default_priv.grant {
+            if grant.role.is_none() {
+                return Err(ManifestError::MissingDefaultPrivilegeRole {
+                    schema: default_priv.schema.clone(),
+                });
+            }
+        }
+    }
+
     // Merge one-off definitions
     roles.extend(manifest.roles.clone());
     grants.extend(manifest.grants.clone());
@@ -647,6 +661,26 @@ schemas:
                 .unwrap_err()
                 .to_string()
                 .contains("{profile} placeholder")
+        );
+    }
+
+    #[test]
+    fn expand_rejects_top_level_default_privilege_without_role() {
+        let yaml = r#"
+default_privileges:
+  - schema: public
+    grant:
+      - privileges: [SELECT]
+        on_type: table
+"#;
+        let manifest = parse_manifest(yaml).unwrap();
+        let result = expand_manifest(&manifest);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must specify grant.role")
         );
     }
 

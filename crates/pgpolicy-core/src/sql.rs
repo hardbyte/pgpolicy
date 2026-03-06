@@ -246,6 +246,17 @@ fn format_object_target(
             let db_name = name.unwrap_or("postgres");
             format!("{type_keyword} {}", quote_ident(db_name))
         }
+        ObjectType::Function => match name {
+            Some("*") => {
+                let schema_name = schema.unwrap_or("public");
+                format!("ALL FUNCTIONS IN SCHEMA {}", quote_ident(schema_name))
+            }
+            Some(function_name) => format_function_target(schema, function_name),
+            None => {
+                let schema_name = schema.unwrap_or("public");
+                format!("{type_keyword} {}", quote_ident(schema_name))
+            }
+        },
         _ => {
             match name {
                 Some("*") => {
@@ -270,6 +281,28 @@ fn format_object_target(
                 }
             }
         }
+    }
+}
+
+fn format_function_target(schema: Option<&str>, function_name: &str) -> String {
+    let schema_name = schema.unwrap_or("public");
+
+    match function_name.rfind('(') {
+        Some(paren_idx) if function_name.ends_with(')') => {
+            let base_name = &function_name[..paren_idx];
+            let args = &function_name[paren_idx..];
+            format!(
+                "FUNCTION {}.{}{}",
+                quote_ident(schema_name),
+                quote_ident(base_name),
+                args
+            )
+        }
+        _ => format!(
+            "FUNCTION {}.{}",
+            quote_ident(schema_name),
+            quote_ident(function_name)
+        ),
     }
 }
 
@@ -520,6 +553,22 @@ mod tests {
     }
 
     #[test]
+    fn render_grant_specific_function() {
+        let change = Change::Grant {
+            role: "r1".to_string(),
+            privileges: BTreeSet::from([Privilege::Execute]),
+            object_type: ObjectType::Function,
+            schema: Some("public".to_string()),
+            name: Some("refresh_users(integer, text)".to_string()),
+        };
+        let sql = render(&change);
+        assert_eq!(
+            sql,
+            "GRANT EXECUTE ON FUNCTION \"public\".\"refresh_users\"(integer, text) TO \"r1\";"
+        );
+    }
+
+    #[test]
     fn render_revoke_all_sequences() {
         let change = Change::Revoke {
             role: "inventory-editor".to_string(),
@@ -675,7 +724,8 @@ memberships:
 "#;
         let manifest = parse_manifest(yaml).unwrap();
         let expanded = expand_manifest(&manifest).unwrap();
-        let desired = RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref());
+        let desired =
+            RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref()).unwrap();
         let current = RoleGraph::default();
 
         let changes = diff(&current, &desired);

@@ -33,6 +33,13 @@ pub enum InspectError {
     Database(#[from] sqlx::Error),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct WildcardGrantPattern {
+    pub role: String,
+    pub object_type: pgpolicy_core::manifest::ObjectType,
+    pub schema: String,
+}
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -54,6 +61,9 @@ pub struct InspectConfig {
     /// Whether to also inspect database-level privileges (CONNECT, CREATE, TEMPORARY).
     /// Usually only needed if the manifest includes database-level grants.
     pub include_database_privileges: bool,
+
+    /// Wildcard grant selectors from the desired manifest.
+    pub(crate) wildcard_grants: Vec<WildcardGrantPattern>,
 }
 
 impl InspectConfig {
@@ -65,6 +75,7 @@ impl InspectConfig {
     ) -> Self {
         let mut managed_roles: BTreeSet<String> = BTreeSet::new();
         let mut managed_schemas: BTreeSet<String> = BTreeSet::new();
+        let mut wildcard_grants: BTreeSet<WildcardGrantPattern> = BTreeSet::new();
 
         // Collect role names
         for role_def in &expanded.roles {
@@ -82,6 +93,20 @@ impl InspectConfig {
             {
                 managed_schemas.insert(name.clone());
             }
+            if grant.on.name.as_deref() == Some("*")
+                && !matches!(
+                    grant.on.object_type,
+                    pgpolicy_core::manifest::ObjectType::Schema
+                        | pgpolicy_core::manifest::ObjectType::Database
+                )
+                && let Some(schema) = &grant.on.schema
+            {
+                wildcard_grants.insert(WildcardGrantPattern {
+                    role: grant.role.clone(),
+                    object_type: grant.on.object_type,
+                    schema: schema.clone(),
+                });
+            }
         }
 
         // Collect schema names from default privileges
@@ -93,6 +118,7 @@ impl InspectConfig {
             managed_roles: managed_roles.into_iter().collect(),
             managed_schemas: managed_schemas.into_iter().collect(),
             include_database_privileges,
+            wildcard_grants: wildcard_grants.into_iter().collect(),
         }
     }
 }
@@ -141,7 +167,13 @@ pub async fn inspect(pool: &PgPool, config: &InspectConfig) -> Result<RoleGraph,
             schemas = ?schema_refs,
             "inspecting object privileges via aclexplode"
         );
-        let privilege_grants = fetch_privileges(pool, &schema_refs, &role_refs).await?;
+        let privilege_grants = privileges::fetch_privileges_with_wildcards(
+            pool,
+            &schema_refs,
+            &role_refs,
+            &config.wildcard_grants,
+        )
+        .await?;
         for (key, state) in privilege_grants {
             graph.grants.insert(key, state);
         }
@@ -237,5 +269,6 @@ grants:
         assert!(config.managed_schemas.contains(&"catalog".to_string()));
 
         assert!(config.include_database_privileges);
+        assert_eq!(config.wildcard_grants.len(), 2);
     }
 }

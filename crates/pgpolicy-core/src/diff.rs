@@ -24,8 +24,8 @@ use crate::model::{DefaultPrivKey, GrantKey, MembershipEdge, RoleAttribute, Role
 /// 2. Alter roles (attribute changes)
 /// 3. Grant privileges
 /// 4. Set default privileges
-/// 5. Add memberships
-/// 6. Remove memberships
+/// 5. Remove memberships
+/// 6. Add memberships
 /// 7. Revoke default privileges
 /// 8. Revoke privileges
 /// 9. Drop roles (after revoking everything from them)
@@ -172,8 +172,8 @@ pub fn diff(current: &RoleGraph, desired: &RoleGraph) -> Vec<Change> {
     changes.extend(alters);
     changes.extend(grants);
     changes.extend(set_defaults);
-    changes.extend(add_members);
     changes.extend(remove_members);
+    changes.extend(add_members);
     changes.extend(revoke_defaults);
     changes.extend(revokes);
     changes.extend(drops);
@@ -613,16 +613,20 @@ mod tests {
         let changes = diff(&current, &desired);
         // Should produce remove + add
         assert_eq!(changes.len(), 2);
-        assert!(
-            changes
-                .iter()
-                .any(|c| matches!(c, Change::RemoveMember { .. }))
-        );
-        assert!(
-            changes
-                .iter()
-                .any(|c| matches!(c, Change::AddMember { admin: true, .. }))
-        );
+        assert!(matches!(
+            &changes[0],
+            Change::RemoveMember { role, member }
+                if role == "editors" && member == "user@example.com"
+        ));
+        assert!(matches!(
+            &changes[1],
+            Change::AddMember {
+                role,
+                member,
+                admin: true,
+                ..
+            } if role == "editors" && member == "user@example.com"
+        ));
     }
 
     #[test]
@@ -751,7 +755,8 @@ memberships:
 "#;
         let manifest = parse_manifest(yaml).unwrap();
         let expanded = expand_manifest(&manifest).unwrap();
-        let desired = RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref());
+        let desired =
+            RoleGraph::from_expanded(&expanded, manifest.default_owner.as_deref()).unwrap();
 
         // Current state is empty — everything should be created
         let current = RoleGraph::default();

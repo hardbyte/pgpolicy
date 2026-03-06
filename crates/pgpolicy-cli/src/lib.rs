@@ -46,7 +46,8 @@ pub fn validate_manifest(yaml: &str) -> Result<ValidatedManifest> {
         manifest::expand_manifest(&policy_manifest).map_err(|err| anyhow::anyhow!("{err}"))?;
 
     let default_owner = policy_manifest.default_owner.as_deref();
-    let desired = RoleGraph::from_expanded(&expanded, default_owner);
+    let desired = RoleGraph::from_expanded(&expanded, default_owner)
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     Ok(ValidatedManifest {
         manifest: policy_manifest,
