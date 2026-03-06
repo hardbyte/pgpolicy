@@ -414,6 +414,11 @@
                         "role": {
                           "description": "The role to retire and ultimately drop.",
                           "type": "string"
+                        },
+                        "terminate_sessions": {
+                          "default": false,
+                          "description": "Whether to terminate other active sessions for the role before drop.",
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -566,6 +571,10 @@
                         "format": "int32",
                         "type": "integer"
                       },
+                      "sessions_terminated": {
+                        "format": "int32",
+                        "type": "integer"
+                      },
                       "total": {
                         "format": "int32",
                         "type": "integer"
@@ -581,6 +590,7 @@
                       "roles_altered",
                       "roles_created",
                       "roles_dropped",
+                      "sessions_terminated",
                       "total"
                     ],
                     "type": "object"

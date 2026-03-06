@@ -104,6 +104,7 @@ pub struct PlanSummary {
     pub roles_altered: usize,
     pub roles_dropped: usize,
     pub comments_changed: usize,
+    pub sessions_terminated: usize,
     pub ownerships_reassigned: usize,
     pub owned_objects_dropped: usize,
     pub grants: usize,
@@ -124,6 +125,7 @@ impl PlanSummary {
                 Change::AlterRole { .. } => summary.roles_altered += 1,
                 Change::DropRole { .. } => summary.roles_dropped += 1,
                 Change::SetComment { .. } => summary.comments_changed += 1,
+                Change::TerminateSessions { .. } => summary.sessions_terminated += 1,
                 Change::ReassignOwned { .. } => summary.ownerships_reassigned += 1,
                 Change::DropOwned { .. } => summary.owned_objects_dropped += 1,
                 Change::Grant { .. } => summary.grants += 1,
@@ -143,6 +145,7 @@ impl PlanSummary {
             + self.roles_altered
             + self.roles_dropped
             + self.comments_changed
+            + self.sessions_terminated
             + self.ownerships_reassigned
             + self.owned_objects_dropped
             + self.grants
@@ -172,6 +175,7 @@ impl std::fmt::Display for PlanSummary {
             ("role(s) to alter", self.roles_altered),
             ("role(s) to drop", self.roles_dropped),
             ("comment(s) to change", self.comments_changed),
+            ("session termination step(s)", self.sessions_terminated),
             ("ownership reassignment(s)", self.ownerships_reassigned),
             ("DROP OWNED cleanup step(s)", self.owned_objects_dropped),
             ("grant(s) to add", self.grants),
@@ -463,14 +467,16 @@ schemas:
                 role: "legacy-app".to_string(),
                 reassign_owned_to: Some("app-owner".to_string()),
                 drop_owned: true,
+                terminate_sessions: true,
             }],
         );
 
         let summary = PlanSummary::from_changes(&changes);
         assert_eq!(summary.roles_dropped, 1);
+        assert_eq!(summary.sessions_terminated, 1);
         assert_eq!(summary.ownerships_reassigned, 1);
         assert_eq!(summary.owned_objects_dropped, 1);
-        assert_eq!(summary.total(), 3);
+        assert_eq!(summary.total(), 4);
     }
 
     // -----------------------------------------------------------------------

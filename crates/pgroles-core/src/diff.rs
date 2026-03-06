@@ -99,6 +99,9 @@ pub enum Change {
     /// Drop owned objects and revoke remaining privileges before drop.
     DropOwned { role: String },
 
+    /// Terminate other active sessions before dropping a role.
+    TerminateSessions { role: String },
+
     /// Drop a role.
     DropRole { name: String },
 }
@@ -190,7 +193,7 @@ pub fn diff(current: &RoleGraph, desired: &RoleGraph) -> Vec<Change> {
 ///
 /// Retirement steps are inserted immediately before the matching `DropRole`
 /// so the final plan remains dependency-safe:
-/// `REASSIGN OWNED` → `DROP OWNED` → `DROP ROLE`.
+/// `TERMINATE SESSIONS` → `REASSIGN OWNED` → `DROP OWNED` → `DROP ROLE`.
 pub fn apply_role_retirements(changes: Vec<Change>, retirements: &[RoleRetirement]) -> Vec<Change> {
     if retirements.is_empty() {
         return changes;
@@ -206,6 +209,9 @@ pub fn apply_role_retirements(changes: Vec<Change>, retirements: &[RoleRetiremen
         if let Change::DropRole { name } = &change
             && let Some(retirement) = retirement_by_role.get(name.as_str())
         {
+            if retirement.terminate_sessions {
+                planned.push(Change::TerminateSessions { role: name.clone() });
+            }
             if let Some(successor) = &retirement.reassign_owned_to {
                 planned.push(Change::ReassignOwned {
                     from_role: name.clone(),
@@ -853,23 +859,28 @@ memberships:
                 role: "old-app".to_string(),
                 reassign_owned_to: Some("successor".to_string()),
                 drop_owned: true,
+                terminate_sessions: true,
             }],
         );
 
         assert!(matches!(planned[0], Change::Grant { .. }));
         assert!(matches!(
             planned[1],
+            Change::TerminateSessions { ref role } if role == "old-app"
+        ));
+        assert!(matches!(
+            planned[2],
             Change::ReassignOwned {
                 ref from_role,
                 ref to_role
             } if from_role == "old-app" && to_role == "successor"
         ));
         assert!(matches!(
-            planned[2],
+            planned[3],
             Change::DropOwned { ref role } if role == "old-app"
         ));
         assert!(matches!(
-            planned[3],
+            planned[4],
             Change::DropRole { ref name } if name == "old-app"
         ));
     }

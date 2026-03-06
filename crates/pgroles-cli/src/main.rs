@@ -210,8 +210,12 @@ async fn cmd_apply(file: &Path, database_url: &str, dry_run: bool) -> Result<()>
         return Ok(());
     }
 
-    if !drop_safety.is_empty() {
-        anyhow::bail!("{drop_safety}");
+    if drop_safety.has_blockers() {
+        anyhow::bail!("{}", drop_safety.blockers);
+    }
+
+    if !drop_safety.warnings.is_empty() {
+        eprintln!("\n{warnings}", warnings = drop_safety.warnings);
     }
 
     // Execute the entire plan in one transaction to avoid partial convergence.
@@ -298,10 +302,10 @@ async fn inspect_drop_safety(
     pool: &PgPool,
     changes: &[pgroles_core::diff::Change],
     retirements: &[pgroles_core::manifest::RoleRetirement],
-) -> Result<pgroles_inspect::DropRoleSafetyReport> {
+) -> Result<pgroles_inspect::DropRoleSafetyAssessment> {
     let dropped_roles = planned_role_drops(changes);
     let report = inspect_drop_role_safety(pool, &dropped_roles)
         .await
         .context("failed to inspect role-drop safety")?;
-    Ok(report.apply_retirements(retirements))
+    Ok(report.assess(retirements))
 }

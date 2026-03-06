@@ -50,6 +50,13 @@ pub struct DropRoleSafetyReport {
     pub issues: Vec<DropRoleSafetyIssue>,
 }
 
+/// Drop-role safety split into warnings the plan can handle and blockers it cannot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DropRoleSafetyAssessment {
+    pub warnings: DropRoleSafetyReport,
+    pub blockers: DropRoleSafetyReport,
+}
+
 impl DropRoleSafetyReport {
     pub fn is_empty(&self) -> bool {
         self.issues.is_empty()
@@ -68,6 +75,9 @@ impl DropRoleSafetyReport {
             .into_iter()
             .filter_map(|mut issue| {
                 if let Some(retirement) = retirement_by_role.get(issue.role.as_str()) {
+                    if retirement.terminate_sessions {
+                        issue.active_session_count = 0;
+                    }
                     if retirement.drop_owned {
                         issue.owned_object_count = 0;
                         issue.owned_object_examples.clear();
@@ -88,75 +98,256 @@ impl DropRoleSafetyReport {
 
         self
     }
+
+    pub fn blockers(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn warnings_after_retirements(&self, retirements: &[RoleRetirement]) -> Self {
+        let residual = self.clone().apply_retirements(retirements);
+        let mut warnings = Vec::new();
+
+        for issue in &self.issues {
+            let residual_issue = residual
+                .issues
+                .iter()
+                .find(|candidate| candidate.role == issue.role);
+
+            let warning = split_warning_issue(issue, residual_issue);
+            if !warning.is_empty() {
+                warnings.push(warning);
+            }
+        }
+
+        Self { issues: warnings }
+    }
+
+    pub fn assess(&self, retirements: &[RoleRetirement]) -> DropRoleSafetyAssessment {
+        let residual = self.clone().apply_retirements(retirements);
+        DropRoleSafetyAssessment {
+            warnings: self.warnings_after_retirements(retirements),
+            blockers: residual.blockers(),
+        }
+    }
 }
 
 impl std::fmt::Display for DropRoleSafetyReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.issues.is_empty() {
-            return Ok(());
-        }
-
-        writeln!(f, "Unsafe role drop(s) detected:")?;
-        for issue in &self.issues {
-            write!(f, "  role \"{}\"", issue.role)?;
-            let mut details = Vec::new();
-
-            push_detail(
-                &mut details,
-                issue.owned_object_count,
-                &issue.owned_object_examples,
-                "owns current-database object(s)",
-            );
-            push_detail(
-                &mut details,
-                issue.shared_owned_object_count,
-                &issue.shared_owned_object_examples,
-                "owns shared object(s)",
-            );
-            push_detail(
-                &mut details,
-                issue.external_owned_object_count,
-                &issue.external_owned_object_examples,
-                "owns object(s) in other database(s)",
-            );
-            push_detail(
-                &mut details,
-                issue.privilege_dependency_count,
-                &issue.privilege_dependency_examples,
-                "still has privilege dependency/dependencies in this database or on shared objects",
-            );
-            push_detail(
-                &mut details,
-                issue.external_privilege_dependency_count,
-                &issue.external_privilege_dependency_examples,
-                "still has privilege dependency/dependencies in other database(s)",
-            );
-            push_detail(
-                &mut details,
-                issue.other_dependency_count,
-                &issue.other_dependency_examples,
-                "has other dependency/dependencies in this database or on shared objects",
-            );
-            push_detail(
-                &mut details,
-                issue.external_other_dependency_count,
-                &issue.external_other_dependency_examples,
-                "has other dependency/dependencies in other database(s)",
-            );
-            if issue.active_session_count > 0 {
-                details.push(format!(
-                    "has {} active session(s)",
-                    issue.active_session_count
-                ));
-            }
-
-            writeln!(f, ": {}", details.join("; "))?;
-        }
-        write!(
+        write_report(
             f,
-            "Use REASSIGN OWNED and DROP OWNED for current-database cleanup, then repeat any required cleanup in each listed database before removing these roles."
+            "Unsafe role drop(s) detected:",
+            &self.issues,
+            "Use REASSIGN OWNED and DROP OWNED for current-database cleanup, then repeat any required cleanup in each listed database before removing these roles.",
         )
     }
+}
+
+impl DropRoleSafetyAssessment {
+    pub fn is_empty(&self) -> bool {
+        self.warnings.is_empty() && self.blockers.is_empty()
+    }
+
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+    }
+}
+
+impl std::fmt::Display for DropRoleSafetyAssessment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut wrote_any = false;
+
+        if !self.warnings.is_empty() {
+            write_report(
+                f,
+                "Role drop cleanup warning(s):",
+                &self.warnings.issues,
+                "These hazards exist now but the planned retirement steps are expected to handle them in this database.",
+            )?;
+            wrote_any = true;
+        }
+
+        if !self.blockers.is_empty() {
+            if wrote_any {
+                writeln!(f)?;
+            }
+            write_report(
+                f,
+                "Role drop blocker(s):",
+                &self.blockers.issues,
+                "These hazards are not covered by the current plan. Resolve them before applying this role removal.",
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
+fn split_warning_issue(
+    original: &DropRoleSafetyIssue,
+    residual: Option<&DropRoleSafetyIssue>,
+) -> DropRoleSafetyIssue {
+    let residual = residual.cloned().unwrap_or_else(|| DropRoleSafetyIssue {
+        role: original.role.clone(),
+        owned_object_count: 0,
+        owned_object_examples: Vec::new(),
+        shared_owned_object_count: 0,
+        shared_owned_object_examples: Vec::new(),
+        external_owned_object_count: 0,
+        external_owned_object_examples: Vec::new(),
+        privilege_dependency_count: 0,
+        privilege_dependency_examples: Vec::new(),
+        external_privilege_dependency_count: 0,
+        external_privilege_dependency_examples: Vec::new(),
+        other_dependency_count: 0,
+        other_dependency_examples: Vec::new(),
+        external_other_dependency_count: 0,
+        external_other_dependency_examples: Vec::new(),
+        active_session_count: 0,
+    });
+
+    DropRoleSafetyIssue {
+        role: original.role.clone(),
+        owned_object_count: original
+            .owned_object_count
+            .saturating_sub(residual.owned_object_count),
+        owned_object_examples: if original.owned_object_count > residual.owned_object_count {
+            original.owned_object_examples.clone()
+        } else {
+            Vec::new()
+        },
+        shared_owned_object_count: original
+            .shared_owned_object_count
+            .saturating_sub(residual.shared_owned_object_count),
+        shared_owned_object_examples: if original.shared_owned_object_count
+            > residual.shared_owned_object_count
+        {
+            original.shared_owned_object_examples.clone()
+        } else {
+            Vec::new()
+        },
+        external_owned_object_count: original
+            .external_owned_object_count
+            .saturating_sub(residual.external_owned_object_count),
+        external_owned_object_examples: if original.external_owned_object_count
+            > residual.external_owned_object_count
+        {
+            original.external_owned_object_examples.clone()
+        } else {
+            Vec::new()
+        },
+        privilege_dependency_count: original
+            .privilege_dependency_count
+            .saturating_sub(residual.privilege_dependency_count),
+        privilege_dependency_examples: if original.privilege_dependency_count
+            > residual.privilege_dependency_count
+        {
+            original.privilege_dependency_examples.clone()
+        } else {
+            Vec::new()
+        },
+        external_privilege_dependency_count: original
+            .external_privilege_dependency_count
+            .saturating_sub(residual.external_privilege_dependency_count),
+        external_privilege_dependency_examples: if original.external_privilege_dependency_count
+            > residual.external_privilege_dependency_count
+        {
+            original.external_privilege_dependency_examples.clone()
+        } else {
+            Vec::new()
+        },
+        other_dependency_count: original
+            .other_dependency_count
+            .saturating_sub(residual.other_dependency_count),
+        other_dependency_examples: if original.other_dependency_count
+            > residual.other_dependency_count
+        {
+            original.other_dependency_examples.clone()
+        } else {
+            Vec::new()
+        },
+        external_other_dependency_count: original
+            .external_other_dependency_count
+            .saturating_sub(residual.external_other_dependency_count),
+        external_other_dependency_examples: if original.external_other_dependency_count
+            > residual.external_other_dependency_count
+        {
+            original.external_other_dependency_examples.clone()
+        } else {
+            Vec::new()
+        },
+        active_session_count: original
+            .active_session_count
+            .saturating_sub(residual.active_session_count),
+    }
+}
+
+fn write_report(
+    f: &mut std::fmt::Formatter<'_>,
+    title: &str,
+    issues: &[DropRoleSafetyIssue],
+    guidance: &str,
+) -> std::fmt::Result {
+    if issues.is_empty() {
+        return Ok(());
+    }
+
+    writeln!(f, "{title}")?;
+    for issue in issues {
+        write!(f, "  role \"{}\"", issue.role)?;
+        let mut details = Vec::new();
+
+        push_detail(
+            &mut details,
+            issue.owned_object_count,
+            &issue.owned_object_examples,
+            "owns current-database object(s)",
+        );
+        push_detail(
+            &mut details,
+            issue.shared_owned_object_count,
+            &issue.shared_owned_object_examples,
+            "owns shared object(s)",
+        );
+        push_detail(
+            &mut details,
+            issue.external_owned_object_count,
+            &issue.external_owned_object_examples,
+            "owns object(s) in other database(s)",
+        );
+        push_detail(
+            &mut details,
+            issue.privilege_dependency_count,
+            &issue.privilege_dependency_examples,
+            "still has privilege dependency/dependencies in this database or on shared objects",
+        );
+        push_detail(
+            &mut details,
+            issue.external_privilege_dependency_count,
+            &issue.external_privilege_dependency_examples,
+            "still has privilege dependency/dependencies in other database(s)",
+        );
+        push_detail(
+            &mut details,
+            issue.other_dependency_count,
+            &issue.other_dependency_examples,
+            "has other dependency/dependencies in this database or on shared objects",
+        );
+        push_detail(
+            &mut details,
+            issue.external_other_dependency_count,
+            &issue.external_other_dependency_examples,
+            "has other dependency/dependencies in other database(s)",
+        );
+        if issue.active_session_count > 0 {
+            details.push(format!(
+                "has {} active session(s)",
+                issue.active_session_count
+            ));
+        }
+
+        writeln!(f, ": {}", details.join("; "))?;
+    }
+    write!(f, "{guidance}")
 }
 
 fn push_detail(details: &mut Vec<String>, count: usize, examples: &[String], label: &str) {
@@ -395,6 +586,7 @@ mod tests {
             role: "legacy-app".to_string(),
             reassign_owned_to: Some("app-owner".to_string()),
             drop_owned: true,
+            terminate_sessions: false,
         }]);
 
         assert!(filtered.is_empty());
@@ -417,6 +609,7 @@ mod tests {
             role: "legacy-app".to_string(),
             reassign_owned_to: None,
             drop_owned: true,
+            terminate_sessions: false,
         }]);
 
         assert_eq!(filtered.issues.len(), 1);
@@ -438,10 +631,59 @@ mod tests {
             role: "legacy-app".to_string(),
             reassign_owned_to: Some("app-owner".to_string()),
             drop_owned: true,
+            terminate_sessions: false,
         }]);
 
         assert_eq!(filtered.issues.len(), 1);
         assert_eq!(filtered.issues[0].active_session_count, 3);
         assert_eq!(filtered.issues[0].owned_object_count, 0);
+    }
+
+    #[test]
+    fn assess_splits_handled_cleanup_into_warnings() {
+        let mut issue = base_issue();
+        issue.owned_object_count = 1;
+        issue.owned_object_examples = vec!["owner on table public.widgets".to_string()];
+        issue.privilege_dependency_count = 1;
+        issue.privilege_dependency_examples = vec!["privilege on table public.widgets".to_string()];
+        issue.active_session_count = 2;
+
+        let assessment = DropRoleSafetyReport {
+            issues: vec![issue],
+        }
+        .assess(&[RoleRetirement {
+            role: "legacy-app".to_string(),
+            reassign_owned_to: Some("app-owner".to_string()),
+            drop_owned: true,
+            terminate_sessions: true,
+        }]);
+
+        assert!(!assessment.warnings.is_empty());
+        assert!(assessment.blockers.is_empty());
+        assert_eq!(assessment.warnings.issues[0].owned_object_count, 1);
+        assert_eq!(assessment.warnings.issues[0].privilege_dependency_count, 1);
+        assert_eq!(assessment.warnings.issues[0].active_session_count, 2);
+    }
+
+    #[test]
+    fn assess_keeps_unhandled_hazards_as_blockers() {
+        let mut issue = base_issue();
+        issue.external_owned_object_count = 1;
+        issue.external_owned_object_examples =
+            vec!["owner in database reporting on table public.widgets".to_string()];
+
+        let assessment = DropRoleSafetyReport {
+            issues: vec![issue],
+        }
+        .assess(&[RoleRetirement {
+            role: "legacy-app".to_string(),
+            reassign_owned_to: Some("app-owner".to_string()),
+            drop_owned: true,
+            terminate_sessions: true,
+        }]);
+
+        assert!(assessment.warnings.is_empty());
+        assert_eq!(assessment.blockers.issues.len(), 1);
+        assert_eq!(assessment.blockers.issues[0].external_owned_object_count, 1);
     }
 }

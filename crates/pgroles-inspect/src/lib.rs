@@ -23,7 +23,9 @@ pub use defaults::fetch_default_privileges;
 pub use memberships::fetch_memberships;
 pub use privileges::{fetch_database_privileges, fetch_privileges};
 pub use roles::fetch_roles;
-pub use safety::{DropRoleSafetyIssue, DropRoleSafetyReport, inspect_drop_role_safety};
+pub use safety::{
+    DropRoleSafetyAssessment, DropRoleSafetyIssue, DropRoleSafetyReport, inspect_drop_role_safety,
+};
 
 // ---------------------------------------------------------------------------
 // Errors

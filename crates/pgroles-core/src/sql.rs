@@ -91,6 +91,7 @@ pub fn render_statements(change: &Change) -> Vec<String> {
         Change::RemoveMember { role, member } => render_remove_member(role, member),
         Change::ReassignOwned { from_role, to_role } => render_reassign_owned(from_role, to_role),
         Change::DropOwned { role } => render_drop_owned(role),
+        Change::TerminateSessions { role } => render_terminate_sessions(role),
         Change::DropRole { name } => vec![format!("DROP ROLE {};", quote_ident(name))],
     }
 }
@@ -446,6 +447,13 @@ fn render_drop_owned(role: &str) -> Vec<String> {
     vec![format!("DROP OWNED BY {};", quote_ident(role))]
 }
 
+fn render_terminate_sessions(role: &str) -> Vec<String> {
+    vec![format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = {} AND pid <> pg_backend_pid();",
+        quote_literal(role)
+    )]
+}
+
 // ---------------------------------------------------------------------------
 // String quoting
 // ---------------------------------------------------------------------------
@@ -725,6 +733,17 @@ mod tests {
             role: "legacy-owner".to_string(),
         };
         assert_eq!(render(&change), "DROP OWNED BY \"legacy-owner\";");
+    }
+
+    #[test]
+    fn render_terminate_sessions() {
+        let change = Change::TerminateSessions {
+            role: "legacy-owner".to_string(),
+        };
+        assert_eq!(
+            render(&change),
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'legacy-owner' AND pid <> pg_backend_pid();"
+        );
     }
 
     #[test]

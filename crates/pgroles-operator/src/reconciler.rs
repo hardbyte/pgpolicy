@@ -234,9 +234,14 @@ async fn reconcile_apply_inner(
         .collect();
     let drop_safety = pgroles_inspect::inspect_drop_role_safety(&pool, &dropped_roles)
         .await?
-        .apply_retirements(&manifest.retirements);
-    if !drop_safety.is_empty() {
-        return Err(ReconcileError::UnsafeRoleDrops(drop_safety.to_string()));
+        .assess(&manifest.retirements);
+    if !drop_safety.warnings.is_empty() {
+        tracing::info!(warnings = %drop_safety.warnings, "role-drop cleanup warnings");
+    }
+    if drop_safety.has_blockers() {
+        return Err(ReconcileError::UnsafeRoleDrops(
+            drop_safety.blockers.to_string(),
+        ));
     }
 
     // 7. Apply changes.
@@ -260,6 +265,7 @@ async fn reconcile_apply_inner(
         summary.total = summary.roles_created
             + summary.roles_altered
             + summary.roles_dropped
+            + summary.sessions_terminated
             + summary.grants_added
             + summary.grants_revoked
             + summary.default_privileges_set
@@ -325,6 +331,7 @@ fn accumulate_summary(summary: &mut ChangeSummary, change: &pgroles_core::diff::
         Change::AlterRole { .. } => summary.roles_altered += 1,
         Change::SetComment { .. } => summary.roles_altered += 1,
         Change::DropRole { .. } => summary.roles_dropped += 1,
+        Change::TerminateSessions { .. } => summary.sessions_terminated += 1,
         Change::ReassignOwned { .. } => {}
         Change::DropOwned { .. } => {}
         Change::Grant { .. } => summary.grants_added += 1,
@@ -447,8 +454,15 @@ mod tests {
                     .collect(),
             },
         );
+        accumulate_summary(
+            &mut summary,
+            &Change::TerminateSessions {
+                role: "test".to_string(),
+            },
+        );
 
         assert_eq!(summary.roles_created, 1);
         assert_eq!(summary.grants_added, 1);
+        assert_eq!(summary.sessions_terminated, 1);
     }
 }

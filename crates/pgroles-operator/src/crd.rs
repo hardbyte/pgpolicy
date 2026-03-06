@@ -221,6 +221,7 @@ pub struct ChangeSummary {
     pub roles_created: i32,
     pub roles_altered: i32,
     pub roles_dropped: i32,
+    pub sessions_terminated: i32,
     pub grants_added: i32,
     pub grants_revoked: i32,
     pub default_privileges_set: i32,
@@ -466,6 +467,7 @@ mod tests {
                 role: "legacy-app".to_string(),
                 reassign_owned_to: Some("app_owner".to_string()),
                 drop_owned: true,
+                terminate_sessions: true,
             }],
         };
 
@@ -482,6 +484,7 @@ mod tests {
             Some("app_owner")
         );
         assert!(manifest.retirements[0].drop_owned);
+        assert!(manifest.retirements[0].terminate_sessions);
     }
 
     #[test]
@@ -554,6 +557,7 @@ retirements:
   - role: legacy-app
     reassign_owned_to: app_owner
     drop_owned: true
+    terminate_sessions: true
 "#;
         let spec: PostgresPolicySpec = serde_yaml::from_str(yaml).expect("should deserialize");
         assert_eq!(spec.interval, "10m");
@@ -566,5 +570,6 @@ retirements:
         assert_eq!(spec.memberships.len(), 1);
         assert_eq!(spec.retirements.len(), 1);
         assert_eq!(spec.retirements[0].role, "legacy-app");
+        assert!(spec.retirements[0].terminate_sessions);
     }
 }

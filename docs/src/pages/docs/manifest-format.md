@@ -151,6 +151,7 @@ retirements:
   - role: legacy_app
     reassign_owned_to: app_owner
     drop_owned: true
+    terminate_sessions: true
 ```
 
 | Field | Type | Default | Description |
@@ -158,7 +159,8 @@ retirements:
 | `role` | string | *required* | The role to retire and ultimately drop |
 | `reassign_owned_to` | string | *none* | Successor role for `REASSIGN OWNED BY ... TO ...` |
 | `drop_owned` | bool | `false` | Run `DROP OWNED BY` before dropping the role |
+| `terminate_sessions` | bool | `false` | Terminate other active sessions for the role before dropping it |
 
-Retired roles are included in the inspection scope even though they are absent from the desired role list. The generated plan inserts `REASSIGN OWNED` and/or `DROP OWNED` immediately before the `DROP ROLE` statement.
+Retired roles are included in the inspection scope even though they are absent from the desired role list. The generated plan inserts session termination, `REASSIGN OWNED`, and/or `DROP OWNED` immediately before the `DROP ROLE` statement.
 
 A retirement entry cannot reference a role that is also listed in `roles` (that would be contradictory), and a role cannot reassign ownership to itself.

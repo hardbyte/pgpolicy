@@ -312,6 +312,10 @@ pub struct RoleRetirement {
     /// Whether to run `DROP OWNED BY` before dropping the role.
     #[serde(default)]
     pub drop_owned: bool,
+
+    /// Whether to terminate other active sessions for the role before drop.
+    #[serde(default)]
+    pub terminate_sessions: bool,
 }
 
 // ---------------------------------------------------------------------------

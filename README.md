@@ -127,7 +127,7 @@ Supported object types for grants: `table`, `view`, `materialized_view`, `sequen
 
 pgroles is convergent within the scope it manages today: the manifest is treated as the desired truth for the roles, grants, default privileges, and memberships it inspects. Roles, grants, and memberships present in the database but absent from the manifest will be dropped or revoked.
 
-Before applying planned role drops, pgroles now performs a live preflight check for obvious hazards such as owned objects, privilege dependencies, policy/init-privilege references, and active sessions, and refuses unsafe drops by default.
+Before applying planned role drops, pgroles now performs a live preflight check for owned objects, privilege dependencies, policy/init-privilege references, and active sessions. It reports hazards the declared retirement workflow will clean up as warnings, and refuses apply only when residual blockers remain.
 
 Use `retirements` to make planned role removal explicit and to declare how pgroles should clean up ownership before the final `DROP ROLE`:
 
@@ -139,9 +139,10 @@ retirements:
   - role: legacy_app
     reassign_owned_to: app_owner
     drop_owned: true
+    terminate_sessions: true
 ```
 
-That expands the inspection scope to include `legacy_app` even though it is no longer in the desired role set, then executes `REASSIGN OWNED`, `DROP OWNED`, and `DROP ROLE` in that order.
+That expands the inspection scope to include `legacy_app` even though it is no longer in the desired role set, then executes session termination, `REASSIGN OWNED`, `DROP OWNED`, and `DROP ROLE` in that order when those steps are declared.
 
 Cleanup is still scoped to the current database plus shared objects. If the preflight reports dependencies in other databases, run the same cleanup against those databases before the final drop.
 

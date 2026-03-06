@@ -371,7 +371,9 @@ fn apply_with_invalid_manifest() {
 ///   DATABASE_URL=postgres://localhost/pgroles_test cargo test -- --ignored
 mod live_db {
     use super::*;
-    use sqlx::{Executor, PgPool, Row};
+    use sqlx::postgres::{PgConnectOptions, PgConnection};
+    use sqlx::{Connection, Executor, PgPool, Row};
+    use std::str::FromStr;
     use tokio::runtime::Runtime;
 
     fn with_runtime<T>(future: impl std::future::Future<Output = T>) -> T {
@@ -505,6 +507,16 @@ mod live_db {
             .expect("failed to query table owner");
             row.map(|row| row.get("owner"))
         })
+    }
+
+    async fn open_role_connection(role: &str, password: &str) -> PgConnection {
+        let options = PgConnectOptions::from_str(&database_url())
+            .expect("failed to parse DATABASE_URL")
+            .username(role)
+            .password(password);
+        PgConnection::connect_with(&options)
+            .await
+            .expect("failed to connect as retired role")
     }
 
     #[test]
@@ -1003,5 +1015,82 @@ retirements:
             DROP ROLE IF EXISTS "{successor_role}";
             "#
         ));
+    }
+
+    #[test]
+    #[ignore]
+    fn retirement_manifest_can_terminate_active_sessions() {
+        let role = unique_name("session_role");
+        let password = "retireme123!";
+
+        execute_sql(&format!(
+            r#"
+            DROP ROLE IF EXISTS "{role}";
+            CREATE ROLE "{role}" LOGIN PASSWORD '{password}';
+            "#
+        ));
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+        let role_for_thread = role.clone();
+
+        let holder = std::thread::spawn(move || {
+            with_runtime(async move {
+                let connection = open_role_connection(&role_for_thread, password).await;
+                ready_tx.send(()).expect("failed to signal ready");
+                let _connection = connection;
+                let _ = stop_rx.recv();
+            });
+        });
+
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("timed out waiting for held session");
+
+        let blocked_manifest = write_temp_manifest(&format!(
+            r#"
+retirements:
+  - role: {role}
+"#
+        ));
+
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                blocked_manifest.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("active session"));
+
+        let terminating_manifest = write_temp_manifest(&format!(
+            r#"
+retirements:
+  - role: {role}
+    terminate_sessions: true
+"#
+        ));
+
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                terminating_manifest.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+            ])
+            .assert()
+            .success();
+
+        let _ = stop_tx.send(());
+        let _ = holder.join();
+
+        assert!(
+            !query_role_exists(&role),
+            "role should be dropped after terminating sessions"
+        );
     }
 }

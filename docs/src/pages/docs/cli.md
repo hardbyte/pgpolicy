@@ -43,7 +43,10 @@ pgroles plan --database-url postgres://localhost/mydb
 
 The `sql` format prints the full SQL script. The `summary` format shows counts of each change type.
 
-If the plan includes role drops, `diff` also runs a live safety check and reports hazards such as owned objects, privilege dependencies, policy/init-privilege references, or active sessions.
+If the plan includes role drops, `diff` also runs a live safety check and splits the result into:
+
+- cleanup warnings that the planned retirement steps are expected to handle
+- residual blockers that still prevent a safe apply
 
 For intentional removals, declare a `retirements` block in the manifest so pgroles can inspect the soon-to-be-dropped role even though it is absent from the desired role list:
 
@@ -55,9 +58,10 @@ retirements:
   - role: legacy_app
     reassign_owned_to: app_owner
     drop_owned: true
+    terminate_sessions: true
 ```
 
-That causes the generated plan to insert `REASSIGN OWNED BY`, `DROP OWNED BY`, and then `DROP ROLE`.
+That causes the generated plan to insert session termination, `REASSIGN OWNED BY`, `DROP OWNED BY`, and then `DROP ROLE`.
 
 `REASSIGN OWNED` and `DROP OWNED` only clean the current database plus shared objects. If the safety report mentions other databases, repeat the cleanup there before expecting the final drop to succeed.
 
@@ -84,8 +88,8 @@ pgroles apply --database-url postgres://localhost/mydb --dry-run
 If any statement fails during `apply`, the transaction is rolled back and earlier changes from that run are not committed.
 {% /callout %}
 
-{% callout type="warning" title="Unsafe role drops are blocked" %}
-If pgroles detects that a role scheduled for removal still owns objects, still has privilege/dependency references, or has active sessions, `apply` refuses the change by default instead of attempting a `DROP ROLE`.
+{% callout type="warning" title="Residual blockers stop apply" %}
+If pgroles still sees unhandled role-drop hazards after accounting for the declared retirement steps, `apply` refuses the change by default instead of attempting a `DROP ROLE`.
 {% /callout %}
 
 ## inspect
@@ -110,8 +114,9 @@ pgroles applies changes in dependency order:
 6. Add memberships
 7. Revoke default privileges
 8. Revoke privileges
-9. Reassign owned objects for retired roles
-10. Drop owned objects / revoke remaining privileges for retired roles
-11. Drop roles
+9. Terminate sessions for retired roles
+10. Reassign owned objects for retired roles
+11. Drop owned objects / revoke remaining privileges for retired roles
+12. Drop roles
 
-This ensures roles exist before they're granted privileges, membership flag changes can be re-applied safely, and retired roles can be cleaned up before the final drop.
+This ensures roles exist before they're granted privileges, membership flag changes can be re-applied safely, and retired roles can be drained and cleaned up before the final drop.
