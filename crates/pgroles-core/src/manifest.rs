@@ -165,6 +165,7 @@ pub enum AuthProvider {
     },
     /// Google AlloyDB IAM authentication.
     /// IAM users and groups map to PostgreSQL roles managed by AlloyDB.
+    #[serde(rename = "alloydb_iam")]
     AlloyDbIam {
         /// GCP project ID (for documentation/validation).
         #[serde(default)]
