@@ -6,6 +6,8 @@ use std::sync::Arc;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
 
+use crate::observability::OperatorObservability;
+
 #[derive(Clone)]
 struct CachedPool {
     resource_version: Option<String>,
@@ -20,14 +22,18 @@ pub struct OperatorContext {
 
     /// Cached database connection pools keyed by `"namespace/secret-name/secret-key"`.
     pool_cache: Arc<RwLock<HashMap<String, CachedPool>>>,
+
+    /// Shared health/metrics state.
+    pub observability: OperatorObservability,
 }
 
 impl OperatorContext {
     /// Create a new operator context with an empty pool cache.
-    pub fn new(kube_client: kube::Client) -> Self {
+    pub fn new(kube_client: kube::Client, observability: OperatorObservability) -> Self {
         Self {
             kube_client,
             pool_cache: Arc::new(RwLock::new(HashMap::new())),
+            observability,
         }
     }
 
