@@ -212,6 +212,19 @@ pub enum ContextError {
     DatabaseConnect { source: sqlx::Error },
 }
 
+impl ContextError {
+    /// Returns true when a Secret fetch failed due to a non-transient client-side API error.
+    pub fn is_secret_fetch_non_transient(&self) -> bool {
+        matches!(
+            self,
+            ContextError::SecretFetch {
+                source: kube::Error::Api(response),
+                ..
+            } if (400..500).contains(&response.code) && response.code != 429
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +234,51 @@ mod tests {
         // Verify the cache key format is "namespace/secret-name/secret-key"
         let key = format!("{}/{}/{}", "prod", "pg-credentials", "DATABASE_URL");
         assert_eq!(key, "prod/pg-credentials/DATABASE_URL");
+    }
+
+    #[test]
+    fn secret_fetch_not_found_is_non_transient() {
+        let error = ContextError::SecretFetch {
+            name: "db-credentials".into(),
+            namespace: "default".into(),
+            source: kube::Error::Api(
+                kube::core::Status::failure("secrets \"db-credentials\" not found", "NotFound")
+                    .with_code(404)
+                    .boxed(),
+            ),
+        };
+
+        assert!(error.is_secret_fetch_non_transient());
+    }
+
+    #[test]
+    fn secret_fetch_forbidden_is_non_transient() {
+        let error = ContextError::SecretFetch {
+            name: "db-credentials".into(),
+            namespace: "default".into(),
+            source: kube::Error::Api(
+                kube::core::Status::failure("forbidden", "Forbidden")
+                    .with_code(403)
+                    .boxed(),
+            ),
+        };
+
+        assert!(error.is_secret_fetch_non_transient());
+    }
+
+    #[test]
+    fn secret_fetch_server_error_remains_transient() {
+        let error = ContextError::SecretFetch {
+            name: "db-credentials".into(),
+            namespace: "default".into(),
+            source: kube::Error::Api(
+                kube::core::Status::failure("internal error", "InternalError")
+                    .with_code(500)
+                    .boxed(),
+            ),
+        };
+
+        assert!(!error.is_secret_fetch_non_transient());
     }
 
     #[tokio::test]
