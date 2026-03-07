@@ -46,6 +46,11 @@ Download pre-built binaries from the [releases page](https://github.com/hardbyte
 docker run --rm ghcr.io/hardbyte/pgroles:0.1.2 --help
 ```
 
+Published container images are multi-arch for `linux/amd64` and `linux/arm64`.
+The release workflow builds the Linux binaries first and then assembles the
+runtime images from those artifacts, so published images do not recompile Rust
+inside the Docker publish jobs.
+
 ## Local Docker validation
 
 To reproduce the live CLI tests against a local PostgreSQL:
@@ -67,6 +72,13 @@ cargo test -p pgroles-cli --test cli live_db::diff_summary_format -- --ignored -
 ```
 
 Use `postgres:17` or `postgres:18` to mirror the CI matrix.
+
+## Contributor notes
+
+- `docker/Dockerfile` is the source-build path used for local builds and E2E-style flows.
+- `docker/Dockerfile.runtime` is the release assembly path used in GitHub Actions.
+- BuildKit cache mounts are used in `docker/Dockerfile` for Cargo registry, git, and target caches.
+- The release workflow does not need Cargo cache mounts in the Docker step because it consumes prebuilt Linux binaries from the earlier build job.
 
 ## Verify installation
 

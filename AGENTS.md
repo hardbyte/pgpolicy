@@ -72,3 +72,11 @@ Four jobs in `.github/workflows/ci.yml`:
 2. **Unit Tests** — `cargo test --workspace`
 3. **Integration Tests** — PG 16/17/18 matrix, `cargo test --workspace -- --include-ignored`
 4. **E2E** — kind cluster, deploys operator, applies sample policy, verifies roles in database
+
+## Release and Containers
+
+- Published container images are multi-arch for `linux/amd64` and `linux/arm64`.
+- `.github/workflows/release.yml` builds Linux binaries first, then assembles container images from those artifacts using `docker/Dockerfile.runtime`.
+- `docker/Dockerfile` remains the source-build path for local Docker builds and any CI path that needs to compile from the repository contents.
+- Keep `docker/Dockerfile` package-scoped (`--package pgroles-cli` / `--package pgroles-operator`) and preserve the BuildKit cache mounts for Cargo registry, git, and target directories.
+- If you change binary names, targets, or release packaging, update both `build-binaries` and `docker/Dockerfile.runtime` together.
