@@ -162,13 +162,19 @@ pub fn error_policy(
 /// Compute a requeue delay with jitter for lock contention back-off.
 fn requeue_with_jitter() -> Action {
     // Simple jitter: base + pseudo-random portion of the jitter window.
-    // We use the current time's subsecond nanos as a cheap entropy source
-    // (no need for cryptographic randomness here).
-    let jitter_nanos = std::time::SystemTime::now()
+    // We combine subsecond nanos with a hash of the thread ID for better
+    // entropy when multiple reconciles hit contention simultaneously.
+    let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .subsec_nanos();
-    let jitter_secs = (jitter_nanos as u64) % (LOCK_CONTENTION_JITTER_SECS + 1);
+    let thread_entropy = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::thread::current().id().hash(&mut hasher);
+        hasher.finish() as u32
+    };
+    let jitter_secs = ((nanos ^ thread_entropy) as u64) % (LOCK_CONTENTION_JITTER_SECS + 1);
     let delay = Duration::from_secs(LOCK_CONTENTION_BASE_SECS + jitter_secs);
     tracing::debug!(delay_secs = delay.as_secs(), "requeue with jitter");
     Action::requeue(delay)
@@ -327,10 +333,7 @@ async fn reconcile_apply_inner(
             ));
         }
         Err(err) => {
-            tracing::warn!(%err, "failed to acquire advisory lock, proceeding without it");
-            // If advisory lock acquisition fails (e.g., connection issue), we
-            // still have the in-process lock. Log a warning but continue.
-            // The advisory lock is a best-effort cross-replica guard.
+            tracing::warn!(%err, "failed to acquire advisory lock — treating as connection error");
             return Err(ReconcileError::SqlExec(err));
         }
     };

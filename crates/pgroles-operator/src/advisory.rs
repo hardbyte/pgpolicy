@@ -84,8 +84,8 @@ fn advisory_lock_key(identity: &str) -> i64 {
         hash = hash.wrapping_mul(PRIME);
     }
 
-    // Fold to i64. We avoid i64::MIN to keep the value simple for logging.
-    (hash as i64).wrapping_abs()
+    // Shift right by 1 to clear the sign bit, guaranteeing a non-negative i64.
+    (hash >> 1) as i64
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,10 @@ impl Drop for DatabaseLockGuard {
                 locks.lock().await.remove(&key);
                 tracing::debug!(database = %key, "released in-memory database lock (deferred)");
             });
+            tracing::debug!(
+                database = %self.key,
+                "deferred in-memory database lock release to background task"
+            );
         }
     }
 }
