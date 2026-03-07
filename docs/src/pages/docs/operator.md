@@ -144,9 +144,9 @@ spec:
     editor:
       grants:
         - privileges: [USAGE]
-          on: { type: schema }
+          'on': { type: schema }
         - privileges: [SELECT, INSERT, UPDATE, DELETE]
-          on: { type: table, name: "*" }
+          'on': { type: table, name: "*" }
       default_privileges:
         - privileges: [SELECT, INSERT, UPDATE, DELETE]
           on_type: table
@@ -163,7 +163,7 @@ spec:
   grants:
     - role: app-service
       privileges: [CONNECT]
-      on: { type: database, name: mydb }
+      'on': { type: database, name: mydb }
 
   memberships:
     - role: inventory-editor

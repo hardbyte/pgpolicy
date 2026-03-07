@@ -213,6 +213,7 @@ jobs:
             done
             echo "::error::$policy did not reach Ready=True"
             kubectl get pgr "$policy" -o yaml || true
+            kubectl -n pgroles-system logs deployment/pgroles-operator --tail=200 || true
             return 1
           }
 
@@ -231,6 +232,7 @@ jobs:
             done
             echo "::error::$policy did not reach Ready=False with reason=$expected_reason"
             kubectl get pgr "$policy" -o yaml || true
+            kubectl -n pgroles-system logs deployment/pgroles-operator --tail=200 || true
             return 1
           }
 
