@@ -15,7 +15,7 @@ use tracing::info;
 use crate::context::{ContextError, OperatorContext};
 use crate::crd::{
     ChangeSummary, DatabaseIdentity, PostgresPolicy, PostgresPolicyStatus, conflict_condition,
-    degraded_condition, ready_condition, reconciling_condition,
+    degraded_condition, paused_condition, ready_condition, reconciling_condition,
 };
 
 /// Finalizer name for PostgresPolicy resources.
@@ -146,13 +146,15 @@ async fn reconcile_apply(
         Ok(action) => Ok(action),
         Err(err) => {
             let error_message = err.to_string();
+            let error_reason = err.reason();
             if let Err(status_err) = update_status(ctx, resource, |status| {
-                status.set_condition(ready_condition(false, "ReconcileFailed", &error_message));
-                status.set_condition(degraded_condition("ReconcileFailed", &error_message));
+                status.set_condition(ready_condition(false, error_reason, &error_message));
+                status.set_condition(degraded_condition(error_reason, &error_message));
                 status
                     .conditions
                     .retain(|c| c.condition_type != "Reconciling");
                 status.change_summary = None;
+                status.last_error = Some(error_message.clone());
             })
             .await
             {
@@ -172,9 +174,24 @@ async fn reconcile_apply_inner(
 
     let spec = &resource.spec;
     let requeue_interval = parse_interval(&spec.interval)?;
+    let generation = resource.metadata.generation;
 
     // If suspended, just requeue without doing anything.
     if spec.suspend {
+        update_status(ctx, resource, |status| {
+            status.set_condition(paused_condition("Reconciliation suspended by spec"));
+            status.set_condition(ready_condition(
+                false,
+                "Suspended",
+                "Reconciliation suspended by spec",
+            ));
+            status
+                .conditions
+                .retain(|c| c.condition_type != "Reconciling");
+            status.last_attempted_generation = generation;
+            status.last_error = None;
+        })
+        .await?;
         info!(name, namespace, "reconciliation suspended, requeuing");
         return Ok(Action::requeue(requeue_interval));
     }
@@ -184,6 +201,9 @@ async fn reconcile_apply_inner(
     // Update status to "Reconciling".
     update_status(ctx, resource, |status| {
         status.set_condition(reconciling_condition("Reconciliation in progress"));
+        status.conditions.retain(|c| c.condition_type != "Paused");
+        status.last_attempted_generation = generation;
+        status.last_error = None;
     })
     .await?;
 
@@ -215,6 +235,7 @@ async fn reconcile_apply_inner(
                 .conditions
                 .retain(|c| c.condition_type != "Reconciling");
             status.change_summary = None;
+            status.last_error = Some(conflict_message.clone());
         })
         .await?;
         info!(name, namespace, %conflict_message, "reconciliation blocked by conflicting policy");
@@ -319,7 +340,6 @@ async fn reconcile_apply_inner(
     }
 
     // 8. Update status to Ready.
-    let generation = resource.metadata.generation;
     update_status(ctx, resource, |status| {
         status.set_condition(ready_condition(true, "Reconciled", "All changes applied"));
         // Clear any previous "Reconciling" or "Degraded" conditions.
@@ -327,10 +347,14 @@ async fn reconcile_apply_inner(
             c.condition_type != "Reconciling"
                 && c.condition_type != "Degraded"
                 && c.condition_type != "Conflict"
+                && c.condition_type != "Paused"
         });
         status.observed_generation = generation;
+        status.last_attempted_generation = generation;
+        status.last_successful_reconcile_time = Some(crate::crd::now_rfc3339());
         status.last_reconcile_time = Some(crate::crd::now_rfc3339());
         status.change_summary = Some(summary);
+        status.last_error = None;
     })
     .await?;
 
@@ -461,6 +485,27 @@ async fn detect_policy_conflict(
             conflicts.join(", "),
             identity.as_str()
         )))
+    }
+}
+
+impl ReconcileError {
+    fn reason(&self) -> &'static str {
+        match self {
+            ReconcileError::ManifestExpansion(_) | ReconcileError::InvalidInterval(_, _) => {
+                "InvalidSpec"
+            }
+            ReconcileError::ConflictingPolicy(_) => "ConflictingPolicy",
+            ReconcileError::Context(context) => match context.as_ref() {
+                ContextError::SecretFetch { .. } => "SecretFetchFailed",
+                ContextError::SecretMissing { .. } => "SecretMissing",
+                ContextError::DatabaseConnect { .. } => "DatabaseConnectionFailed",
+            },
+            ReconcileError::Inspect(_) => "DatabaseInspectionFailed",
+            ReconcileError::SqlExec(_) => "ApplyFailed",
+            ReconcileError::UnsafeRoleDrops(_) => "UnsafeRoleDrops",
+            ReconcileError::Kube(_) => "KubernetesApiError",
+            ReconcileError::NoNamespace => "InvalidResource",
+        }
     }
 }
 
