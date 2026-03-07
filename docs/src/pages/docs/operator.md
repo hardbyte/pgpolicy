@@ -7,6 +7,8 @@ The pgroles operator watches `PostgresPolicy` custom resources and continuously 
 
 ---
 
+For the internal controller design, see the [operator architecture](/docs/operator-architecture) page.
+
 ## Overview
 
 The operator brings the same convergent model as the CLI into Kubernetes. Instead of running `pgroles apply` manually, you declare a `PostgresPolicy` resource and the operator reconciles on a configurable interval.
