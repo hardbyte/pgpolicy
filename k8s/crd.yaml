@@ -638,11 +638,32 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "managed_database_identity": {
+                    "description": "Canonical identity of the managed database target.",
+                    "nullable": true,
+                    "type": "string"
+                  },
                   "observed_generation": {
                     "description": "The `.metadata.generation` that was last successfully reconciled.",
                     "format": "int64",
                     "nullable": true,
                     "type": "integer"
+                  },
+                  "owned_roles": {
+                    "default": [],
+                    "description": "Roles claimed by this policy's declared ownership scope.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "owned_schemas": {
+                    "default": [],
+                    "description": "Schemas claimed by this policy's declared ownership scope.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
