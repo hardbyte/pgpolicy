@@ -139,6 +139,16 @@ jobs:
         run: |
           kubectl wait --for=condition=ready pod/postgres-0 --timeout=90s
 
+      - name: Seed PostgreSQL objects for grant reconciliation
+        run: |
+          kubectl exec postgres-0 -- psql -U postgres -d postgres <<'SQL'
+          CREATE TABLE IF NOT EXISTS public.inventory_items (
+            id integer generated always as identity primary key,
+            name text not null
+          );
+          CREATE SEQUENCE IF NOT EXISTS public.audit_seq;
+          SQL
+
       - uses: docker/setup-buildx-action@v4
 
       - name: Build operator image and load into kind
