@@ -103,7 +103,7 @@ The operator is intended to become a production controller, but that still requi
 
 ### 1. More realistic test coverage
 
-- CI now covers:
+- CI covers:
   - multiple policies targeting the same database with conflicting ownership
   - multiple non-overlapping policies targeting the same database
   - invalid specs
