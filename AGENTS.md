@@ -60,6 +60,8 @@ diff(current, desired) → Vec<Change> → sql::render_all_with_context() → SQ
 - **pgroles-inspect** — Async database introspection via `sqlx`/`pg_catalog`. Version detection, cloud provider detection (RDS, Cloud SQL, AlloyDB, Azure), drop-role safety preflight.
 - **pgroles-cli** — Binary crate. Thin orchestration over core + inspect. Subcommands: `validate`, `diff`/`plan`, `apply`, `inspect`, `generate`.
 - **pgroles-operator** — Kubernetes operator (WIP). Reconciles `PostgresPolicy` CRDs (`pgroles.io/v1alpha1`). Has a `crdgen` binary for generating `k8s/crd.yaml`.
+  - Health endpoints: `/livez`, `/readyz`
+  - Metrics/telemetry: prefer OTLP export via OpenTelemetry Collector; do not add a built-in Prometheus scrape endpoint by default unless the change explicitly requires it.
 
 ### Diff Change Ordering
 

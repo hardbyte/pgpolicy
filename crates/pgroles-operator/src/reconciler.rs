@@ -24,6 +24,30 @@ const FINALIZER: &str = "pgroles.io/finalizer";
 /// Default requeue interval when no interval is specified on the CR.
 const DEFAULT_REQUEUE_SECS: u64 = 300; // 5 minutes
 
+enum ReconcileOutcome {
+    Reconciled,
+    Suspended,
+    Conflict,
+}
+
+impl ReconcileOutcome {
+    fn result(&self) -> &'static str {
+        match self {
+            ReconcileOutcome::Reconciled => "success",
+            ReconcileOutcome::Suspended => "suspended",
+            ReconcileOutcome::Conflict => "conflict",
+        }
+    }
+
+    fn reason(&self) -> &'static str {
+        match self {
+            ReconcileOutcome::Reconciled => "Reconciled",
+            ReconcileOutcome::Suspended => "Suspended",
+            ReconcileOutcome::Conflict => "ConflictingPolicy",
+        }
+    }
+}
+
 /// Errors that can occur during reconciliation.
 #[derive(Debug, thiserror::Error)]
 pub enum ReconcileError {
@@ -142,11 +166,25 @@ async fn reconcile_apply(
     resource: &PostgresPolicy,
     ctx: &OperatorContext,
 ) -> Result<Action, ReconcileError> {
+    let reconcile_guard = ctx.observability.start_reconcile();
     match reconcile_apply_inner(resource, ctx).await {
-        Ok(action) => Ok(action),
+        Ok((action, outcome)) => {
+            reconcile_guard.record_result(outcome.result(), outcome.reason());
+            Ok(action)
+        }
         Err(err) => {
             let error_message = err.to_string();
             let error_reason = err.reason();
+            match error_reason {
+                "DatabaseConnectionFailed" => {
+                    ctx.observability.record_database_connection_failure()
+                }
+                "InvalidSpec" => ctx.observability.record_invalid_spec(),
+                "ConflictingPolicy" => ctx.observability.record_policy_conflict(),
+                "ApplyFailed" => ctx.observability.record_apply_result("error"),
+                _ => {}
+            }
+            reconcile_guard.record_result("error", error_reason);
             if let Err(status_err) = update_status(ctx, resource, |status| {
                 status.set_condition(ready_condition(false, error_reason, &error_message));
                 status.set_condition(degraded_condition(error_reason, &error_message));
@@ -168,7 +206,7 @@ async fn reconcile_apply(
 async fn reconcile_apply_inner(
     resource: &PostgresPolicy,
     ctx: &OperatorContext,
-) -> Result<Action, ReconcileError> {
+) -> Result<(Action, ReconcileOutcome), ReconcileError> {
     let name = resource.name_any();
     let namespace = resource.namespace().ok_or(ReconcileError::NoNamespace)?;
 
@@ -193,7 +231,10 @@ async fn reconcile_apply_inner(
         })
         .await?;
         info!(name, namespace, "reconciliation suspended, requeuing");
-        return Ok(Action::requeue(requeue_interval));
+        return Ok((
+            Action::requeue(requeue_interval),
+            ReconcileOutcome::Suspended,
+        ));
     }
 
     info!(name, namespace, "starting reconciliation");
@@ -238,8 +279,12 @@ async fn reconcile_apply_inner(
             status.last_error = Some(conflict_message.clone());
         })
         .await?;
+        ctx.observability.record_policy_conflict();
         info!(name, namespace, %conflict_message, "reconciliation blocked by conflicting policy");
-        return Ok(Action::requeue(requeue_interval));
+        return Ok((
+            Action::requeue(requeue_interval),
+            ReconcileOutcome::Conflict,
+        ));
     }
 
     // 1. Convert CRD spec to core manifest.
@@ -311,14 +356,19 @@ async fn reconcile_apply_inner(
         info!(name, namespace, count = changes.len(), "applying changes");
 
         let mut transaction = pool.begin().await?;
+        let mut statements_executed = 0usize;
         for change in &changes {
             for sql in pgroles_core::sql::render_statements(change) {
                 tracing::debug!(%sql, "executing");
                 sqlx::query(&sql).execute(transaction.as_mut()).await?;
+                statements_executed += 1;
             }
             accumulate_summary(&mut summary, change);
         }
         transaction.commit().await?;
+        ctx.observability.record_apply_result("success");
+        ctx.observability
+            .record_apply_statements(statements_executed);
 
         summary.total = summary.roles_created
             + summary.roles_altered
@@ -358,7 +408,10 @@ async fn reconcile_apply_inner(
     })
     .await?;
 
-    Ok(Action::requeue(requeue_interval))
+    Ok((
+        Action::requeue(requeue_interval),
+        ReconcileOutcome::Reconciled,
+    ))
 }
 
 /// Cleanup on deletion — evict cached pool.

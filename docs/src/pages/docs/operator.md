@@ -115,14 +115,14 @@ The operator is intended to become a production controller, but that requires st
 - Add HTTP endpoints for:
   - `/livez`
   - `/readyz`
-  - `/metrics`
 - Keep readiness tied to controller health rather than the success of any one policy.
-- Export Prometheus metrics for:
+- Export OTLP metrics for:
   - reconcile duration and result
   - database connection failures
   - lock contention
   - change counts by type
   - invalid spec/conflict totals
+  - with the OpenTelemetry Collector as the default sink in Kubernetes rather than a built-in Prometheus scrape endpoint
 
 ### 5. More realistic test coverage
 
@@ -227,6 +227,26 @@ The `interval` field controls how often the operator re-reconciles, even when th
 ### Suspending
 
 Set `suspend: true` to pause reconciliation without deleting the resource. The operator will skip the resource until `suspend` is set back to `false`.
+
+### Health and telemetry
+
+The operator exposes health probes on its internal HTTP port:
+
+- `/livez`
+- `/readyz`
+
+The Helm chart configures these probes automatically. Metrics are exported via OpenTelemetry OTLP when standard OTel endpoint environment variables are set, for example:
+
+```yaml
+operator:
+  env:
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: http://otel-collector.observability.svc.cluster.local:4317
+    - name: OTEL_METRICS_EXPORTER
+      value: otlp
+```
+
+The intended deployment model is operator -> OpenTelemetry Collector -> your metrics backend.
 
 ### Deletion behaviour
 
