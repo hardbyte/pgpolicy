@@ -108,8 +108,8 @@ The operator is intended to become a production controller, but that still requi
   - multiple non-overlapping policies targeting the same database
   - invalid specs
   - missing secrets
+  - rotated secrets and connection recovery after secret repair
 - Remaining gaps:
-  - rotated secrets
   - insufficient database privileges
 - Add scale and load tests covering large manifests, many roles/grants, and many policies across multiple databases.
 - Add reconciliation concurrency tests to prove per-database serialization and backoff behavior.

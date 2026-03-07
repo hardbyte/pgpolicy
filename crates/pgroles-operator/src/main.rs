@@ -5,9 +5,11 @@
 
 use std::sync::Arc;
 
-use futures::StreamExt;
+use futures::{StreamExt, stream};
+use k8s_openapi::api::core::v1::Secret;
+use kube::runtime::reflector::ObjectRef;
 use kube::runtime::{Controller, WatchStreamExt, predicates, reflector, watcher};
-use kube::{Api, Client};
+use kube::{Api, Client, ResourceExt};
 use tracing::info;
 
 use pgroles_operator::context::OperatorContext;
@@ -50,18 +52,42 @@ async fn main() -> anyhow::Result<()> {
     let ctx = Arc::new(OperatorContext::new(client.clone(), observability.clone()));
 
     // Watch all PostgresPolicy resources across all namespaces.
-    let policies: Api<PostgresPolicy> = Api::all(client);
+    let policies: Api<PostgresPolicy> = Api::all(client.clone());
     let (reader, writer) = reflector::store();
     let policy_stream = watcher(policies.clone(), watcher::Config::default())
         .default_backoff()
         .reflect(writer)
         .applied_objects()
         .predicate_filter(predicates::generation, Default::default());
+    let policy_store = reader.clone();
+    let secret_triggers = watcher(Api::<Secret>::all(client), watcher::Config::default())
+        .default_backoff()
+        .touched_objects()
+        .predicate_filter(predicates::resource_version, Default::default())
+        .filter_map(|secret| async move { secret.ok() })
+        .flat_map(move |secret| {
+            let policy_store = policy_store.clone();
+            let Some(secret_ns) = secret.namespace() else {
+                return stream::iter(Vec::<ObjectRef<PostgresPolicy>>::new());
+            };
+            let secret_name = secret.name_any();
+            let refs = policy_store
+                .state()
+                .into_iter()
+                .filter(|policy| {
+                    policy.namespace().as_deref() == Some(secret_ns.as_str())
+                        && policy.spec.connection.secret_ref.name == secret_name
+                })
+                .map(|policy| ObjectRef::from_obj(policy.as_ref()))
+                .collect::<Vec<_>>();
+            stream::iter(refs)
+        });
 
     info!("starting controller");
     observability.mark_ready();
 
     Controller::for_stream(policy_stream, reader)
+        .reconcile_on(secret_triggers)
         .shutdown_on_signal()
         .run(reconcile, error_policy, ctx)
         .for_each(|result| async move {

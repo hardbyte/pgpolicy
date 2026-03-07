@@ -329,6 +329,22 @@ jobs:
           kubectl apply -f k8s/samples/missing-secret-policy.yaml
           wait_for_ready_reason missing-secret-policy SecretFetchFailed
 
+          kubectl create secret generic rotating-postgres-credentials \
+            --from-literal=DATABASE_URL='postgres://postgres:devpassword@postgres.default.svc.cluster.local:5432/postgres' \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/samples/rotated-secret-policy.yaml
+          wait_for_ready_true rotated-secret-policy
+
+          kubectl create secret generic rotating-postgres-credentials \
+            --from-literal=DATABASE_URL='postgres://postgres:devpassword@postgres.default.svc.cluster.local:15432/postgres' \
+            --dry-run=client -o yaml | kubectl apply -f -
+          wait_for_ready_reason rotated-secret-policy DatabaseConnectionFailed
+
+          kubectl create secret generic rotating-postgres-credentials \
+            --from-literal=DATABASE_URL='postgres://postgres:devpassword@postgres.default.svc.cluster.local:5432/postgres' \
+            --dry-run=client -o yaml | kubectl apply -f -
+          wait_for_ready_true rotated-secret-policy
+
       - name: Verify OTLP metrics reach the collector
         run: |
           for i in $(seq 1 30); do
