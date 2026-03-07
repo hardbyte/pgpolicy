@@ -29,6 +29,21 @@ helm repo add pgroles https://hardbyte.github.io/pgroles
 helm install pgroles-operator pgroles/pgroles-operator
 ```
 
+### crates.io
+
+For local development or custom packaging, the operator crate is also published on crates.io:
+
+```shell
+cargo install pgroles-operator
+```
+
+If you are embedding the reconciler or CRD types in another Rust project:
+
+```toml
+[dependencies]
+pgroles-operator = "0.1.2"
+```
+
 ### Configuration
 
 Key values you can override:
