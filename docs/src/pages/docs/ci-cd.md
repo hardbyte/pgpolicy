@@ -107,10 +107,13 @@ If you prefer installing from source instead of Docker, add a Rust toolchain ste
 
 ## GitLab CI
 
+The published Docker image is a static binary with no shell, so it can't be used directly as a GitLab CI `image:` (which requires `/bin/sh` to run `script:` blocks). Use a Rust image and install from source:
+
 ```yaml
 drift-check:
-  image: ghcr.io/hardbyte/pgroles:latest
+  image: rust:latest
   script:
+    - cargo install pgroles-cli
     - pgroles diff -f pgroles.yaml --exit-code
   variables:
     DATABASE_URL: $DATABASE_URL
