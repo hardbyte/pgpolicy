@@ -46,18 +46,12 @@ impl Drop for DatabaseLockGuard {
             } else {
                 // No runtime available — fall back to synchronous cleanup
                 // via blocking_lock so the entry is still removed.
-                if let Ok(mut map) = self.locks.try_lock() {
-                    map.remove(&key);
-                    tracing::debug!(
-                        database = %key,
-                        "released in-memory database lock (fallback sync)"
-                    );
-                } else {
-                    tracing::warn!(
-                        database = %key,
-                        "could not release in-memory database lock — no runtime and mutex contended"
-                    );
-                }
+                let mut map = self.locks.blocking_lock();
+                map.remove(&key);
+                tracing::debug!(
+                    database = %key,
+                    "released in-memory database lock (fallback sync)"
+                );
             }
         }
     }
