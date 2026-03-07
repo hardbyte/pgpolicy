@@ -184,7 +184,15 @@ pub struct PostgresPolicyStatus {
     #[serde(default)]
     pub observed_generation: Option<i64>,
 
+    /// The `.metadata.generation` that was last attempted.
+    #[serde(default)]
+    pub last_attempted_generation: Option<i64>,
+
     /// ISO 8601 timestamp of the last successful reconciliation.
+    #[serde(default)]
+    pub last_successful_reconcile_time: Option<String>,
+
+    /// Deprecated alias retained for compatibility with older status readers.
     #[serde(default)]
     pub last_reconcile_time: Option<String>,
 
@@ -203,6 +211,10 @@ pub struct PostgresPolicyStatus {
     /// Schemas claimed by this policy's declared ownership scope.
     #[serde(default)]
     pub owned_schemas: Vec<String>,
+
+    /// Last reconcile error message, if any.
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 /// A condition on the `PostgresPolicy` resource.
@@ -519,6 +531,17 @@ pub fn degraded_condition(reason: &str, message: &str) -> PolicyCondition {
     }
 }
 
+/// Helper to create a "Paused" condition.
+pub fn paused_condition(message: &str) -> PolicyCondition {
+    PolicyCondition {
+        condition_type: "Paused".to_string(),
+        status: "True".to_string(),
+        reason: Some("Suspended".to_string()),
+        message: Some(message.to_string()),
+        last_transition_time: Some(now_rfc3339()),
+    }
+}
+
 /// Helper to create a "Conflict" condition.
 pub fn conflict_condition(reason: &str, message: &str) -> PolicyCondition {
     PolicyCondition {
@@ -626,6 +649,14 @@ mod tests {
         status.set_condition(degraded_condition("Error", "something broke"));
 
         assert_eq!(status.conditions.len(), 2);
+    }
+
+    #[test]
+    fn paused_condition_has_expected_shape() {
+        let paused = paused_condition("paused by spec");
+        assert_eq!(paused.condition_type, "Paused");
+        assert_eq!(paused.status, "True");
+        assert_eq!(paused.reason.as_deref(), Some("Suspended"));
     }
 
     #[test]
