@@ -288,28 +288,39 @@ fn pseudo_random_window(window_secs: u64) -> u64 {
 
 fn retry_class(error: &finalizer::Error<ReconcileError>) -> RetryClass {
     match error {
-        finalizer::Error::ApplyFailed(reconcile_error) => match reconcile_error {
-            ReconcileError::LockContention(_, _) => RetryClass::LockContention,
-            ReconcileError::ManifestExpansion(_)
-            | ReconcileError::InvalidInterval(_, _)
-            | ReconcileError::ConflictingPolicy(_)
-            | ReconcileError::UnsafeRoleDrops(_)
-            | ReconcileError::NoNamespace => RetryClass::Slow,
-            ReconcileError::Context(context) => match context.as_ref() {
-                ContextError::SecretMissing { .. } => RetryClass::Slow,
-                ContextError::SecretFetch { .. } | ContextError::DatabaseConnect { .. } => {
-                    RetryClass::Transient
-                }
-            },
-            ReconcileError::Inspect(_) | ReconcileError::SqlExec(_) | ReconcileError::Kube(_) => {
-                RetryClass::Transient
-            }
-        },
+        finalizer::Error::ApplyFailed(reconcile_error) => {
+            retry_class_for_reconcile_error(reconcile_error)
+        }
         finalizer::Error::CleanupFailed(_)
         | finalizer::Error::AddFinalizer(_)
         | finalizer::Error::RemoveFinalizer(_)
         | finalizer::Error::UnnamedObject
         | finalizer::Error::InvalidFinalizer => RetryClass::Transient,
+    }
+}
+
+fn retry_class_for_reconcile_error(error: &ReconcileError) -> RetryClass {
+    match error {
+        ReconcileError::LockContention(_, _) => RetryClass::LockContention,
+        ReconcileError::ManifestExpansion(_)
+        | ReconcileError::InvalidInterval(_, _)
+        | ReconcileError::ConflictingPolicy(_)
+        | ReconcileError::UnsafeRoleDrops(_)
+        | ReconcileError::NoNamespace => RetryClass::Slow,
+        ReconcileError::Context(context) => match context.as_ref() {
+            ContextError::SecretMissing { .. } => RetryClass::Slow,
+            ContextError::SecretFetch { .. } => {
+                if context.is_secret_fetch_non_transient() {
+                    RetryClass::Slow
+                } else {
+                    RetryClass::Transient
+                }
+            }
+            ContextError::DatabaseConnect { .. } => RetryClass::Transient,
+        },
+        ReconcileError::Inspect(_) | ReconcileError::SqlExec(_) | ReconcileError::Kube(_) => {
+            RetryClass::Transient
+        }
     }
 }
 
@@ -380,17 +391,8 @@ async fn reconcile_apply(
         Err(err) => {
             let error_message = err.to_string();
             let error_reason = err.reason();
-            let is_transient_failure = matches!(
-                &err,
-                ReconcileError::Context(context)
-                    if matches!(
-                        context.as_ref(),
-                        ContextError::SecretFetch { .. } | ContextError::DatabaseConnect { .. }
-                    )
-            ) || matches!(
-                &err,
-                ReconcileError::Inspect(_) | ReconcileError::SqlExec(_) | ReconcileError::Kube(_)
-            );
+            let is_transient_failure =
+                retry_class_for_reconcile_error(&err) == RetryClass::Transient;
             match error_reason {
                 "DatabaseConnectionFailed" => {
                     ctx.observability.record_database_connection_failure()
@@ -1248,6 +1250,54 @@ mod tests {
             crate::context::ContextError::SecretMissing {
                 name: "db-credentials".into(),
                 key: "DATABASE_URL".into(),
+            },
+        )));
+        assert_eq!(retry_class(&error), RetryClass::Slow);
+    }
+
+    #[test]
+    fn retry_classifies_secret_fetch_not_found_as_slow() {
+        let error = finalizer::Error::ApplyFailed(ReconcileError::Context(Box::new(
+            crate::context::ContextError::SecretFetch {
+                name: "db-credentials".into(),
+                namespace: "default".into(),
+                source: kube::Error::Api(
+                    kube::core::Status::failure("secrets \"db-credentials\" not found", "NotFound")
+                        .with_code(404)
+                        .boxed(),
+                ),
+            },
+        )));
+        assert_eq!(retry_class(&error), RetryClass::Slow);
+    }
+
+    #[test]
+    fn retry_classifies_secret_fetch_transport_errors_as_transient() {
+        let error = finalizer::Error::ApplyFailed(ReconcileError::Context(Box::new(
+            crate::context::ContextError::SecretFetch {
+                name: "db-credentials".into(),
+                namespace: "default".into(),
+                source: kube::Error::Api(
+                    kube::core::Status::failure("internal error", "InternalError")
+                        .with_code(500)
+                        .boxed(),
+                ),
+            },
+        )));
+        assert_eq!(retry_class(&error), RetryClass::Transient);
+    }
+
+    #[test]
+    fn retry_classifies_secret_fetch_forbidden_as_slow() {
+        let error = finalizer::Error::ApplyFailed(ReconcileError::Context(Box::new(
+            crate::context::ContextError::SecretFetch {
+                name: "db-credentials".into(),
+                namespace: "default".into(),
+                source: kube::Error::Api(
+                    kube::core::Status::failure("forbidden", "Forbidden")
+                        .with_code(403)
+                        .boxed(),
+                ),
             },
         )));
         assert_eq!(retry_class(&error), RetryClass::Slow);
