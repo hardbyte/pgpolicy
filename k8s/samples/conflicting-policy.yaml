@@ -11,6 +11,6 @@ spec:
   interval: "5m"
 
   roles:
-    - name: public-editor
+    - name: analytics
       login: true
-      comment: "Overlaps with the roles claimed by basic-policy"
+      comment: "Overlaps with the roles claimed by disjoint-policy"
