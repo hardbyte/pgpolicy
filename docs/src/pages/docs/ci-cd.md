@@ -5,7 +5,7 @@ description: Use pgroles as a drift gate in your CI/CD pipeline.
 
 pgroles integrates into CI/CD pipelines as a drift gate, a deployment step, or both. {% .lead %}
 
-For platform-specific setup (Cloud SQL Auth Proxy, RDS network access, etc.), see the [Google Cloud SQL](/docs/google-cloud-sql) or [AWS RDS](/docs/aws-rds) guides.
+For Cloud SQL or RDS connectivity setup (auth proxies, VPC access, IAM authentication), see the [Google Cloud SQL](/docs/google-cloud-sql) or [AWS RDS](/docs/aws-rds) guides.
 
 ---
 
@@ -21,6 +21,8 @@ For platform-specific setup (Cloud SQL Auth Proxy, RDS network access, etc.), se
 
 ## GitHub Actions
 
+These examples use the published Docker image, which requires no toolchain installation. Your runner needs network access to the database — see the platform guides linked above if you need to set up a proxy or VPN.
+
 ### Drift check on PRs
 
 ```yaml
@@ -30,13 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pgroles
-        run: cargo install pgroles-cli
-
       - name: Check for drift
-        run: pgroles diff -f pgroles.yaml --exit-code
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm \
+            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            -v "${{ github.workspace }}:/work" \
+            ghcr.io/hardbyte/pgroles:latest \
+            diff -f /work/pgroles.yaml --exit-code
 ```
 
 ### Apply on merge
@@ -49,13 +51,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pgroles
-        run: cargo install pgroles-cli
-
       - name: Apply roles
-        run: pgroles apply -f pgroles.yaml
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm \
+            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            -v "${{ github.workspace }}:/work" \
+            ghcr.io/hardbyte/pgroles:latest \
+            apply -f /work/pgroles.yaml
 ```
 
 ### Diff as a PR comment
@@ -66,12 +68,14 @@ Post the planned SQL changes as a PR comment for review:
       - name: Generate diff
         id: diff
         run: |
-          OUTPUT=$(pgroles diff -f pgroles.yaml 2>&1) || true
+          OUTPUT=$(docker run --rm \
+            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            -v "${{ github.workspace }}:/work" \
+            ghcr.io/hardbyte/pgroles:latest \
+            diff -f /work/pgroles.yaml 2>&1) || true
           echo "diff<<EOF" >> "$GITHUB_OUTPUT"
           echo "$OUTPUT" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Comment on PR
         if: github.event_name == 'pull_request'
@@ -89,29 +93,27 @@ Post the planned SQL changes as a PR comment for review:
             }
 ```
 
-## Docker-based pipelines
+### Using cargo install
 
-If your CI doesn't have Rust/Cargo, use the published Docker image directly:
+If you prefer installing from source instead of Docker, add a Rust toolchain step first:
 
 ```yaml
-# GitLab CI
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install pgroles-cli
+      - run: pgroles diff -f pgroles.yaml --exit-code
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+```
+
+## GitLab CI
+
+```yaml
 drift-check:
   image: ghcr.io/hardbyte/pgroles:latest
   script:
     - pgroles diff -f pgroles.yaml --exit-code
   variables:
     DATABASE_URL: $DATABASE_URL
-```
-
-```yaml
-# GitHub Actions with Docker
-- name: Check for drift
-  run: |
-    docker run --rm \
-      -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-      -v ${{ github.workspace }}:/work \
-      ghcr.io/hardbyte/pgroles:latest \
-      diff -f /work/pgroles.yaml --exit-code
 ```
 
 ## Output formats

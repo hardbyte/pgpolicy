@@ -33,7 +33,28 @@ pgroles diff -f pgroles.yaml
 
 In **GKE**, run the proxy as a sidecar or as a standalone Deployment in the same namespace as the operator. With [Workload Identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) configured, the proxy authenticates automatically without keys.
 
-In **GitHub Actions**, use the [setup-cloud-sql-proxy](https://github.com/google-github-actions/setup-cloud-sql-proxy) action — see the [CI/CD integration](/docs/ci-cd) guide for the full workflow pattern.
+In **GitHub Actions**, use the [setup-cloud-sql-proxy](https://github.com/google-github-actions/setup-cloud-sql-proxy) action:
+
+```yaml
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.SA_EMAIL }}
+
+      - uses: google-github-actions/setup-cloud-sql-proxy@v2
+        with:
+          instance_connection_name: my-project:us-central1:my-instance
+
+      - name: Check for drift
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL="postgres://postgres:${{ secrets.DB_PASSWORD }}@127.0.0.1:5432/mydb" \
+            -v "${{ github.workspace }}:/work" \
+            ghcr.io/hardbyte/pgroles:latest \
+            diff -f /work/pgroles.yaml --exit-code
+```
+
+See [CI/CD integration](/docs/ci-cd) for more patterns (apply-on-merge, PR comments, output formats).
 
 ### Private IP
 
@@ -53,32 +74,40 @@ postgres://postgres:PASSWORD@/mydb?host=/cloudsql/MY_PROJECT:us-central1:my-inst
 
 ## Cloud Run job
 
-If you don't run Kubernetes, a [Cloud Run job](https://cloud.google.com/run/docs/create-jobs) is a lightweight way to run pgroles on a schedule. Build a custom image with your manifest:
+If you don't run Kubernetes, a [Cloud Run job](https://cloud.google.com/run/docs/create-jobs) is a lightweight way to run pgroles on a schedule using the published image directly — no custom build required.
 
-```dockerfile
-FROM ghcr.io/hardbyte/pgroles:latest
-COPY pgroles.yaml /etc/pgroles/pgroles.yaml
-ENTRYPOINT ["pgroles", "apply", "-f", "/etc/pgroles/pgroles.yaml"]
-```
+Store your manifest in Secret Manager alongside the connection string:
 
 ```shell
-gcloud builds submit --tag gcr.io/MY_PROJECT/pgroles-apply
+gcloud secrets create pgroles-manifest \
+  --data-file=pgroles.yaml
+
+gcloud secrets create pgroles-db-url \
+  --data-file=- <<< 'postgres://postgres:PASSWORD@/mydb?host=/cloudsql/MY_PROJECT:us-central1:my-instance'
 ```
 
-Create the job using the built-in Cloud SQL connector:
+Create the job, mounting the manifest as a file via `--set-secrets`:
 
 ```shell
 gcloud run jobs create pgroles-apply \
-  --image gcr.io/MY_PROJECT/pgroles-apply \
+  --image ghcr.io/hardbyte/pgroles:latest \
+  --set-secrets /work/pgroles.yaml=pgroles-manifest:latest \
   --set-secrets DATABASE_URL=pgroles-db-url:latest \
   --add-cloudsql-instances MY_PROJECT:us-central1:my-instance \
+  --args "apply,-f,pgroles.yaml" \
   --region us-central1
 ```
 
-The secret `pgroles-db-url` should be stored in [Secret Manager](https://cloud.google.com/secret-manager) with the connection string.
+Pinning to `:latest` means each job execution resolves the newest secret version at startup. To update the manifest, add a new secret version:
+
+```shell
+gcloud secrets versions add pgroles-manifest --data-file=pgroles.yaml
+```
+
+The next scheduled (or manual) execution picks it up automatically — no redeploy needed.
 
 {% callout type="note" title="VPC connector" %}
-If connecting via Private IP instead of the built-in connector, Cloud Run needs a [Serverless VPC Access connector](https://cloud.google.com/vpc/docs/configure-serverless-vpc-access) or [Direct VPC egress](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc).
+If connecting via Private IP instead of the built-in Cloud SQL connector, Cloud Run needs a [Serverless VPC Access connector](https://cloud.google.com/vpc/docs/configure-serverless-vpc-access) or [Direct VPC egress](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc). Replace `--add-cloudsql-instances` with `--vpc-connector my-connector` and use the private IP in your connection string.
 {% /callout %}
 
 ### Schedule it
@@ -93,15 +122,38 @@ gcloud scheduler jobs create http pgroles-daily \
 
 ### Drift detection
 
-Build a separate image for drift checks (or override the command):
+Create a second job that diffs instead of applying:
 
-```dockerfile
-FROM ghcr.io/hardbyte/pgroles:latest
-COPY pgroles.yaml /etc/pgroles/pgroles.yaml
-ENTRYPOINT ["pgroles", "diff", "-f", "/etc/pgroles/pgroles.yaml", "--exit-code"]
+```shell
+gcloud run jobs create pgroles-drift \
+  --image ghcr.io/hardbyte/pgroles:latest \
+  --set-secrets /work/pgroles.yaml=pgroles-manifest:latest \
+  --set-secrets DATABASE_URL=pgroles-db-url:latest \
+  --add-cloudsql-instances MY_PROJECT:us-central1:my-instance \
+  --args "diff,-f,pgroles.yaml,--exit-code" \
+  --region us-central1
 ```
 
 Exit code 2 means drift was detected.
+
+### Custom image alternative
+
+If you prefer baking the manifest into the image (e.g., for versioned deploys tied to image tags):
+
+```dockerfile
+FROM ghcr.io/hardbyte/pgroles:latest
+COPY pgroles.yaml .
+```
+
+```shell
+gcloud builds submit --tag gcr.io/MY_PROJECT/pgroles-apply
+gcloud run jobs create pgroles-apply \
+  --image gcr.io/MY_PROJECT/pgroles-apply \
+  --set-secrets DATABASE_URL=pgroles-db-url:latest \
+  --add-cloudsql-instances MY_PROJECT:us-central1:my-instance \
+  --args "apply,-f,pgroles.yaml" \
+  --region us-central1
+```
 
 ## Cloud Build
 
