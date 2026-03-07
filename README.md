@@ -215,6 +215,11 @@ Download pre-built binaries from the [releases page](https://github.com/hardbyte
 docker run --rm ghcr.io/hardbyte/pgroles:0.1.2 --help
 ```
 
+Published images are multi-arch for `linux/amd64` and `linux/arm64`.
+Release builds now compile the Linux binaries once and assemble the published
+container images from those prebuilt artifacts rather than recompiling inside
+the Docker jobs.
+
 ## Local Testing
 
 ```bash
@@ -260,7 +265,7 @@ helm install pgroles-operator pgroles/pgroles-operator
 ## Components
 
 - **pgroles-core** — Manifest parsing, profile expansion, diff engine, SQL generation, and manifest export. No database dependencies. Includes version-aware SQL rendering via `SqlContext`.
-- **pgroles-inspect** — Live database introspection via `pg_catalog` queries (sqlx + tokio). Includes PostgreSQL version detection, cloud provider detection (RDS, Cloud SQL, Azure), and privilege level assessment.
+- **pgroles-inspect** — Live database introspection via `pg_catalog` queries (sqlx + tokio). Includes PostgreSQL version detection, cloud provider detection (RDS, Cloud SQL, AlloyDB, Azure), and privilege level assessment.
 - **pgroles-cli** — Command-line tool for validating manifests, planning changes, applying them, and generating manifests from existing databases.
 - **pgroles-operator** — *(work in progress)* Kubernetes operator that reconciles `PostgresPolicy` custom resources against PostgreSQL databases.
 
