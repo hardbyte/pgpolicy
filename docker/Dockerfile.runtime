@@ -29,6 +29,7 @@ FROM ${RUNTIME_IMAGE} AS cli-runtime
 
 COPY --from=select /out/pgroles /usr/local/bin/pgroles
 
+WORKDIR /work
 USER 65534
 ENTRYPOINT ["pgroles"]
 
