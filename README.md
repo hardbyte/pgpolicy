@@ -69,7 +69,7 @@ Then `pgroles apply` to execute it.
 
 ```bash
 # Already have a database with roles? Generate a manifest from it:
-pgroles generate --database-url postgres://...
+pgroles generate --database-url postgres://... > pgroles.yaml
 
 # See what SQL pgroles would run:
 pgroles diff -f pgroles.yaml --database-url postgres://...
