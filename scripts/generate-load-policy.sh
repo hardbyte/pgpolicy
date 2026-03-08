@@ -3,19 +3,22 @@ set -euo pipefail
 
 schema_count="${1:-20}"
 output_path="${2:-/dev/stdout}"
+policy_name="${3:-load-policy}"
+secret_name="${4:-postgres-credentials}"
+schema_prefix="${5:-load}"
 
 {
-  cat <<'YAML'
+  cat <<YAML
 ---
 apiVersion: pgroles.io/v1alpha1
 kind: PostgresPolicy
 metadata:
-  name: load-policy
+  name: ${policy_name}
   namespace: default
 spec:
   connection:
     secretRef:
-      name: postgres-credentials
+      name: ${secret_name}
   interval: "5m"
   default_owner: postgres
 
@@ -48,7 +51,7 @@ YAML
 
   for i in $(seq -w 1 "${schema_count}"); do
     cat <<YAML
-    - name: load_${i}
+    - name: ${schema_prefix}_${i}
       profiles: [editor, viewer]
 YAML
   done
