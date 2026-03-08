@@ -16,7 +16,7 @@ resources.
 
 ## Install
 
-This crate is maintained in-repo. It is publishable and included in the release workflow, but it is not yet available on crates.io in the current released version.
+This crate is maintained in-repo.
 
 Library from source:
 

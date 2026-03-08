@@ -32,7 +32,7 @@ helm install pgroles-operator oci://ghcr.io/hardbyte/charts/pgroles-operator
 
 ### Source crate
 
-The operator source crate lives in this repository. It is publishable and included in the release workflow, but it is not yet available on crates.io in the current released version.
+The operator source crate lives in this repository.
 
 If you are embedding the reconciler or CRD types in another Rust project from source, depend on the repository directly in your `Cargo.toml`:
 
