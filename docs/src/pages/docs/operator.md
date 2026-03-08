@@ -7,6 +7,8 @@ The pgroles operator watches `PostgresPolicy` custom resources and continuously 
 
 ---
 
+For the internal controller design, see the [operator architecture](/docs/operator-architecture) page.
+
 ## Overview
 
 The operator brings the same convergent model as the CLI into Kubernetes. Instead of running `pgroles apply` manually, you declare a `PostgresPolicy` resource and the operator reconciles on a configurable interval.
@@ -16,8 +18,8 @@ The operator brings the same convergent model as the CLI into Kubernetes. Instea
 - Status conditions and change summaries on the custom resource
 - Finalizer-based cleanup on resource deletion
 
-{% callout title="Work in progress" %}
-The operator is functional but still under active development. The CRD schema may change in future releases.
+{% callout title="Production-focused controller" %}
+The operator is no longer an experimental proof of concept. It is intended for production use, but the API is still `v1alpha1` and the remaining roadmap items are primarily about broader test coverage and API hardening rather than basic controller viability.
 {% /callout %}
 
 ## Installation
@@ -108,11 +110,11 @@ The operator is intended to become a production controller, but that still requi
   - multiple non-overlapping policies targeting the same database
   - invalid specs
   - missing secrets
-- Remaining gaps:
-  - rotated secrets
   - insufficient database privileges
-- Add scale and load tests covering large manifests, many roles/grants, and many policies across multiple databases.
-- Add reconciliation concurrency tests to prove per-database serialization and backoff behavior.
+  - rotated secrets and connection recovery after secret repair
+- Remaining gaps:
+  - scale and load tests covering large manifests, many roles/grants, and many policies across multiple databases
+  - reconciliation concurrency tests that prove per-database serialization and backoff behavior under churn
 
 ### 2. API hardening toward production use
 
@@ -189,15 +191,20 @@ The operator reads the Secret from the same namespace as the `PostgresPolicy` re
 
 ## Reconciliation
 
-Each reconciliation cycle:
+{% operator-reconciliation-diagram /%}
 
-1. Reads the Secret and establishes (or reuses a cached) database connection
-2. Converts the CRD spec into a `PolicyManifest` — the same type used by the CLI
-3. Expands profiles across schemas into concrete roles and grants
-4. Inspects the live database state
-5. Computes the diff between current and desired state
-6. Applies all changes in a single transaction
-7. Updates the resource status with conditions and a change summary
+### Insufficient privileges
+
+If the operator can connect to PostgreSQL but the management role cannot inspect or apply the requested changes, the policy settles to a non-ready state instead of hot-looping as if the failure were transient.
+
+Current behavior:
+
+- `Ready=False`
+- reason `InsufficientPrivileges`
+- `lastError` contains the PostgreSQL error message, for example `permission denied to create role`
+- the policy retries on its normal reconcile interval rather than exponential transient backoff
+
+This is the expected state when the database credential is valid but under-privileged for the requested manifest.
 
 ### Interval
 
@@ -257,6 +264,22 @@ status:
     membersAdded: 1
     membersRemoved: 0
     total: 8
+```
+
+An insufficient-privilege failure looks more like:
+
+```yaml
+status:
+  conditions:
+    - type: Ready
+      status: "False"
+      reason: InsufficientPrivileges
+      message: "error returned from database: permission denied to create role"
+    - type: Degraded
+      status: "True"
+      reason: InsufficientPrivileges
+  lastError: "error returned from database: permission denied to create role"
+  transientFailureCount: 0
 ```
 
 ### Conditions

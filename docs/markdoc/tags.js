@@ -1,4 +1,6 @@
 import { Callout } from '@/components/Callout'
+import { OperatorArchitectureDiagram } from '@/components/OperatorArchitectureDiagram'
+import { OperatorReconciliationDiagram } from '@/components/OperatorReconciliationDiagram'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 
 const tags = {
@@ -41,8 +43,15 @@ const tags = {
       icon: { type: String },
       href: { type: String },
     },
+  },
+  'operator-architecture-diagram': {
+    selfClosing: true,
+    render: OperatorArchitectureDiagram,
+  },
+  'operator-reconciliation-diagram': {
+    selfClosing: true,
+    render: OperatorReconciliationDiagram,
   }
-
 }
 
 export default tags

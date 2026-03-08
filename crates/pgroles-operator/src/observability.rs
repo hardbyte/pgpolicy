@@ -258,7 +258,7 @@ async fn readyz(State(observability): State<OperatorObservability>) -> impl Into
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use axum::extract::State;
     use axum::http::StatusCode;
@@ -271,6 +271,8 @@ mod tests {
         Metrics, OperatorObservability, ReconcileGuard, SERVICE_NAME, livez, otel_metrics_enabled,
         readyz,
     };
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn test_observability() -> (
         OperatorObservability,
@@ -331,6 +333,7 @@ mod tests {
 
     #[test]
     fn otel_metrics_stay_disabled_without_endpoint() {
+        let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
         unsafe {
             std::env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT");
             std::env::remove_var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT");
@@ -341,8 +344,10 @@ mod tests {
 
     #[test]
     fn otel_metrics_enable_with_explicit_endpoint() {
+        let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
         unsafe {
             std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317");
+            std::env::remove_var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT");
             std::env::remove_var("OTEL_METRICS_EXPORTER");
         }
         assert!(otel_metrics_enabled());
