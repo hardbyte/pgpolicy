@@ -7,6 +7,7 @@
 <div align="center">
 
 [![CI](https://github.com/hardbyte/pgroles/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hardbyte/pgroles/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hardbyte/pgroles?sort=semver)](https://github.com/hardbyte/pgroles/releases)
 [![Docs](https://img.shields.io/badge/docs-github_pages-blue)](https://hardbyte.github.io/pgroles/)
 [![crates.io - pgroles-cli](https://img.shields.io/crates/v/pgroles-cli)](https://crates.io/crates/pgroles-cli)
 [![crates.io - pgroles-core](https://img.shields.io/crates/v/pgroles-core)](https://crates.io/crates/pgroles-core)
@@ -108,7 +109,7 @@ cargo install pgroles-cli
 - [`pgroles-cli`](https://crates.io/crates/pgroles-cli) — end-user CLI
 - [`pgroles-core`](https://crates.io/crates/pgroles-core) — manifest model, diff engine, SQL rendering
 - [`pgroles-inspect`](https://crates.io/crates/pgroles-inspect) — database inspection and managed-provider detection
-- `pgroles-operator` — operator crate in this repository; see the operator docs for source consumption
+- `pgroles-operator` — operator crate in this repository; see the [operator docs](https://hardbyte.github.io/pgroles/docs/operator/) for source consumption
 
 **Docker:**
 ```bash

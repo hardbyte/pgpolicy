@@ -22,7 +22,7 @@ Library from source:
 
 ```toml
 [dependencies]
-pgroles-operator = { git = "https://github.com/hardbyte/pgroles", tag = "v0.1.2" }
+pgroles-operator = { git = "https://github.com/hardbyte/pgroles", tag = "v0.1.3" }
 ```
 
 ## Intended Audience

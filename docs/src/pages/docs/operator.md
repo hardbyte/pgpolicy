@@ -38,7 +38,7 @@ If you are embedding the reconciler or CRD types in another Rust project from so
 
 ```toml
 [dependencies]
-pgroles-operator = { git = "https://github.com/hardbyte/pgroles", tag = "v0.1.2" }
+pgroles-operator = { git = "https://github.com/hardbyte/pgroles", tag = "v0.1.3" }
 ```
 
 ### Configuration
