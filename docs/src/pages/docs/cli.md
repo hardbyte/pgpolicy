@@ -106,6 +106,32 @@ Before executing changes, `apply` detects the connecting role's privilege level 
 
 Provider-aware warning logic currently recognizes `rds_superuser`, `cloudsqlsuperuser`, `alloydbsuperuser`, and `azure_pg_admin`. Other PostgreSQL-compatible managed services, including Supabase and PlanetScale PostgreSQL, may still work, but privilege warnings will be generic rather than provider-specific.
 
+### Insufficient privileges
+
+There are two common cases:
+
+1. pgroles can predict the limitation up front
+2. PostgreSQL rejects a statement during inspect or apply
+
+For explicitly recognized managed-service admin roles, pgroles warns before apply when the plan requests unsupported attributes such as `SUPERUSER`, `REPLICATION`, or `BYPASSRLS`.
+
+If PostgreSQL still rejects a query or DDL statement, `apply` fails, the transaction is rolled back, and pgroles exits non-zero. No partial changes from that run are committed.
+
+Typical outcomes:
+
+- `diff` may still succeed if the connecting role can inspect the required catalog state
+- `diff` fails non-zero if the connecting role cannot inspect the database state needed for planning
+- `apply` fails non-zero if the connecting role cannot execute one of the planned statements
+
+Example of an apply-time failure:
+
+```text
+Warning: Cannot create role "app_admin" with SUPERUSER — cloud superuser lacks this privilege
+Error: failed to execute: CREATE ROLE "app_admin" LOGIN SUPERUSER ...
+Caused by:
+    error returned from database: permission denied to create role
+```
+
 {% callout type="note" title="Transactional apply" %}
 If any statement fails during `apply`, the transaction is rolled back and earlier changes from that run are not committed.
 {% /callout %}

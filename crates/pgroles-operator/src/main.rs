@@ -3,19 +3,33 @@
 //! Watches `PostgresPolicy` custom resources and reconciles PostgreSQL roles,
 //! grants, default privileges, and memberships against live databases.
 
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use futures::{StreamExt, stream};
 use k8s_openapi::api::core::v1::Secret;
 use kube::runtime::reflector::ObjectRef;
 use kube::runtime::{Controller, WatchStreamExt, predicates, reflector, watcher};
-use kube::{Api, Client, ResourceExt};
+use kube::{Api, Client, Resource, ResourceExt};
 use tracing::info;
 
 use pgroles_operator::context::OperatorContext;
 use pgroles_operator::crd::PostgresPolicy;
 use pgroles_operator::observability::{OperatorObservability, serve_health};
 use pgroles_operator::reconciler::{error_policy, reconcile};
+
+fn policy_trigger_hash(policy: &PostgresPolicy) -> Option<u64> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    policy.meta().generation.hash(&mut hasher);
+    policy
+        .meta()
+        .deletion_timestamp
+        .as_ref()
+        .map(|timestamp| timestamp.0.to_string())
+        .hash(&mut hasher);
+    policy.meta().finalizers.hash(&mut hasher);
+    Some(hasher.finish())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -58,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         .default_backoff()
         .reflect(writer)
         .applied_objects()
-        .predicate_filter(predicates::generation, Default::default());
+        .predicate_filter(policy_trigger_hash, Default::default());
     let policy_store = reader.clone();
     let secret_triggers = watcher(Api::<Secret>::all(client), watcher::Config::default())
         .default_backoff()
@@ -108,4 +122,59 @@ async fn main() -> anyhow::Result<()> {
     }
     info!("controller shut down");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::policy_trigger_hash;
+    use pgroles_operator::crd::{
+        ConnectionSpec, PostgresPolicy, PostgresPolicySpec, SecretReference,
+    };
+
+    fn test_policy() -> PostgresPolicy {
+        let spec = PostgresPolicySpec {
+            connection: ConnectionSpec {
+                secret_ref: SecretReference {
+                    name: "db-credentials".to_string(),
+                },
+                secret_key: "DATABASE_URL".to_string(),
+            },
+            interval: "5m".to_string(),
+            suspend: false,
+            default_owner: None,
+            profiles: Default::default(),
+            schemas: Vec::new(),
+            roles: Vec::new(),
+            grants: Vec::new(),
+            default_privileges: Vec::new(),
+            memberships: Vec::new(),
+            retirements: Vec::new(),
+        };
+        let mut policy = PostgresPolicy::new("example", spec);
+        policy.metadata.namespace = Some("default".to_string());
+        policy.metadata.generation = Some(1);
+        policy
+    }
+
+    #[test]
+    fn policy_trigger_hash_changes_when_generation_changes() {
+        let policy = test_policy();
+        let original = policy_trigger_hash(&policy);
+
+        let mut changed = policy.clone();
+        changed.metadata.generation = Some(2);
+
+        assert_ne!(original, policy_trigger_hash(&changed));
+    }
+
+    #[test]
+    fn policy_trigger_hash_changes_when_finalizers_change() {
+        let policy = test_policy();
+        let original = policy_trigger_hash(&policy);
+
+        let mut changed = policy.clone();
+        changed.metadata.finalizers = Some(vec!["pgroles.io/finalizer".to_string()]);
+
+        assert_ne!(original, policy_trigger_hash(&changed));
+    }
 }
