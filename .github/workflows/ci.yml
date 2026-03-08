@@ -341,7 +341,8 @@ jobs:
             expected_substring="$2"
             for i in $(seq 1 30); do
               last_error="$(kubectl get pgr "$policy" -o jsonpath='{.status.lastError}' 2>/dev/null || true)"
-              if printf '%s' "$last_error" | grep -Fq "$expected_substring"; then
+              normalized_last_error="$(printf '%s' "$last_error" | tr '\n' ' ' | tr -s ' ')"
+              if printf '%s' "$normalized_last_error" | grep -Fq "$expected_substring"; then
                 echo "$policy reported expected error substring: $expected_substring"
                 return 0
               fi
@@ -375,7 +376,7 @@ jobs:
 
           kubectl apply -f k8s/samples/insufficient-privileges-policy.yaml
           wait_for_ready_reason insufficient-privileges-policy InsufficientPrivileges
-          wait_for_last_error_contains insufficient-privileges-policy "permission denied"
+          wait_for_last_error_contains insufficient-privileges-policy "permission denied to create role"
           ! kubectl exec postgres-0 -- psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'insufficient-privileges-user'" | grep -qx "1"
 
           kubectl create secret generic rotating-postgres-credentials \
