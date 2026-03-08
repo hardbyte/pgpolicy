@@ -178,7 +178,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build binaries
-        run: cargo build --workspace
+        run: cargo build -p pgroles-operator
+
+      - name: Stage operator binary for E2E image
+        run: |
+          mkdir -p dist
+          install -Dm755 -s target/debug/pgroles-operator dist/pgroles-operator-e2e
 
       - name: Install kind
         run: |
@@ -244,18 +249,8 @@ jobs:
             --from-literal=DATABASE_URL='postgres://postgres:devpassword@postgres.default.svc.cluster.local:5432/loadtest' \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - uses: docker/setup-buildx-action@v4
-
       - name: Build operator image and load into kind
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          target: operator
-          load: true
-          tags: pgroles-operator:e2e
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: docker build -f docker/Dockerfile.e2e -t pgroles-operator:e2e dist
 
       - name: Load image into kind
         run: kind load docker-image pgroles-operator:e2e --name pgroles-e2e
