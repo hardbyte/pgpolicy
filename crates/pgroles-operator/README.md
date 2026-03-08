@@ -16,17 +16,13 @@ resources.
 
 ## Install
 
-Library:
+This crate is maintained in-repo and is not yet published on crates.io.
+
+Library from source:
 
 ```toml
 [dependencies]
 pgroles-operator = "<current-release>"
-```
-
-Binary:
-
-```bash
-cargo install pgroles-operator
 ```
 
 ## Intended Audience

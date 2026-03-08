@@ -30,15 +30,11 @@ The operator is no longer an experimental proof of concept. It is intended for p
 helm install pgroles-operator oci://ghcr.io/hardbyte/charts/pgroles-operator
 ```
 
-### crates.io
+### Source crate
 
-For local development or custom packaging, the operator crate is also published on crates.io:
+The operator source crate lives in this repository, but it is not yet published on crates.io.
 
-```shell
-cargo install pgroles-operator
-```
-
-If you are embedding the reconciler or CRD types in another Rust project, pin the current release in your `Cargo.toml`:
+If you are embedding the reconciler or CRD types in another Rust project from source, pin the current release in your `Cargo.toml`:
 
 ```toml
 [dependencies]
