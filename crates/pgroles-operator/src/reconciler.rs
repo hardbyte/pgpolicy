@@ -816,10 +816,7 @@ fn detect_policy_conflict_in_list(
     ownership: &crate::crd::OwnershipClaims,
     policies: impl IntoIterator<Item = PostgresPolicy>,
 ) -> Option<String> {
-    let this_ns = match resource.namespace() {
-        Some(ns) => ns,
-        None => return None,
-    };
+    let this_ns = resource.namespace()?;
     let this_name = resource.name_any();
 
     let mut conflicts = Vec::new();
