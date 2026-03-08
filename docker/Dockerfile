@@ -39,6 +39,7 @@ FROM cgr.dev/chainguard/static@sha256:d6a97eb401cbc7c6d48be76ad81d7899b943035808
 
 COPY --from=builder-cli /out/pgroles /usr/local/bin/pgroles
 
+WORKDIR /work
 USER 65534
 ENTRYPOINT ["pgroles"]
 

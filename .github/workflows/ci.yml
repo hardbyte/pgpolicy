@@ -101,7 +101,71 @@ jobs:
         run: cargo test --workspace -- --include-ignored
 
   # ---------------------------------------------------------------------------
-  # Job 4: E2E — kind cluster + operator deployment
+  # Job 4: Docker smoke tests — verify doc examples work
+  # ---------------------------------------------------------------------------
+  docker-smoke:
+    name: Docker Smoke Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: pgroles_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DATABASE_URL: "postgres://postgres:testpassword@localhost:5432/pgroles_test"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build CLI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: cli
+          load: true
+          tags: pgroles:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: "Smoke: --help via entrypoint"
+        run: docker run --rm pgroles:smoke --help
+
+      - name: "Smoke: volume mount + validate"
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/tests/fixtures:/work" \
+            pgroles:smoke \
+            validate -f smoke-test.yaml
+
+      - name: "Smoke: volume mount + diff against live DB"
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -v "${{ github.workspace }}/tests/fixtures:/work" \
+            pgroles:smoke \
+            diff -f smoke-test.yaml --no-exit-code
+
+      - name: "Smoke: derived image builds and runs"
+        run: |
+          printf 'FROM pgroles:smoke\nCOPY tests/fixtures/smoke-test.yaml .\n' > /tmp/Dockerfile.derived
+          docker build -f /tmp/Dockerfile.derived -t pgroles:derived .
+          docker run --rm --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            pgroles:derived \
+            diff -f smoke-test.yaml --no-exit-code
+
+  # ---------------------------------------------------------------------------
+  # Job 5: E2E — kind cluster + operator deployment
   # ---------------------------------------------------------------------------
   e2e:
     name: E2E Tests

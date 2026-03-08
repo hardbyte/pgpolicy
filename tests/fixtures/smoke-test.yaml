@@ -1,0 +1,13 @@
+# Minimal manifest used by CI to smoke-test the Docker image.
+# Matches the doc examples: volume mount, derived image, diff against a live DB.
+default_owner: postgres
+
+roles:
+  - name: smoke_viewer
+    login: false
+    comment: "Smoke test role"
+
+grants:
+  - role: smoke_viewer
+    privileges: [CONNECT]
+    on: { type: database, name: pgroles_test }
