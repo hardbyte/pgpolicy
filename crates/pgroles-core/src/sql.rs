@@ -4,7 +4,7 @@
 //! statements. All identifiers are double-quoted to handle names containing
 //! hyphens, dots, `@` signs, etc.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use crate::diff::Change;
@@ -32,11 +32,14 @@ pub fn quote_ident(identifier: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Context controlling version-dependent SQL generation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SqlContext {
     /// PostgreSQL major version (e.g., 14, 15, 16, 17).
     /// Controls syntax differences like `WITH INHERIT` in membership grants.
     pub pg_major_version: i32,
+    /// Optional schema-scoped catalog inventory used to safely expand wildcard
+    /// relation statements without leaking across relation subtypes.
+    pub relation_inventory: BTreeMap<(ObjectType, String), Vec<String>>,
 }
 
 impl SqlContext {
@@ -44,7 +47,17 @@ impl SqlContext {
     pub fn from_version_num(version_num: i32) -> Self {
         Self {
             pg_major_version: version_num / 10000,
+            relation_inventory: BTreeMap::new(),
         }
+    }
+
+    /// Attach live relation inventory for safer wildcard rendering.
+    pub fn with_relation_inventory(
+        mut self,
+        relation_inventory: BTreeMap<(ObjectType, String), Vec<String>>,
+    ) -> Self {
+        self.relation_inventory = relation_inventory;
+        self
     }
 
     /// Whether PG supports `GRANT ... WITH INHERIT TRUE/FALSE` (PG 16+).
@@ -57,6 +70,7 @@ impl Default for SqlContext {
     fn default() -> Self {
         Self {
             pg_major_version: 16, // Default to PG 16+ (current minimum)
+            relation_inventory: BTreeMap::new(),
         }
     }
 }
@@ -96,6 +110,7 @@ pub fn render_statements_with_context(change: &Change, ctx: &SqlContext) -> Vec<
             *object_type,
             schema.as_deref(),
             name.as_deref(),
+            ctx,
         ),
         Change::Revoke {
             role,
@@ -109,6 +124,7 @@ pub fn render_statements_with_context(change: &Change, ctx: &SqlContext) -> Vec<
             *object_type,
             schema.as_deref(),
             name.as_deref(),
+            ctx,
         ),
         Change::SetDefaultPrivilege {
             owner,
@@ -257,15 +273,19 @@ fn render_grant(
     object_type: ObjectType,
     schema: Option<&str>,
     name: Option<&str>,
+    ctx: &SqlContext,
 ) -> Vec<String> {
     let privilege_list = format_privileges(privileges);
-    let target = format_object_target(object_type, schema, name);
-    vec![format!(
-        "GRANT {} ON {} TO {};",
-        privilege_list,
-        target,
-        quote_ident(role)
-    )]
+    render_privilege_statements(
+        "GRANT",
+        "TO",
+        role,
+        &privilege_list,
+        object_type,
+        schema,
+        name,
+        ctx,
+    )
 }
 
 fn render_revoke(
@@ -274,15 +294,100 @@ fn render_revoke(
     object_type: ObjectType,
     schema: Option<&str>,
     name: Option<&str>,
+    ctx: &SqlContext,
 ) -> Vec<String> {
     let privilege_list = format_privileges(privileges);
+    render_privilege_statements(
+        "REVOKE",
+        "FROM",
+        role,
+        &privilege_list,
+        object_type,
+        schema,
+        name,
+        ctx,
+    )
+}
+
+fn render_privilege_statements(
+    action: &str,
+    subject_preposition: &str,
+    role: &str,
+    privilege_list: &str,
+    object_type: ObjectType,
+    schema: Option<&str>,
+    name: Option<&str>,
+    ctx: &SqlContext,
+) -> Vec<String> {
+    if matches!(
+        object_type,
+        ObjectType::Table | ObjectType::View | ObjectType::MaterializedView
+    ) && name == Some("*")
+    {
+        return render_relation_wildcard(
+            action,
+            subject_preposition,
+            role,
+            privilege_list,
+            object_type,
+            schema,
+            ctx,
+        );
+    }
+
     let target = format_object_target(object_type, schema, name);
     vec![format!(
-        "REVOKE {} ON {} FROM {};",
-        privilege_list,
-        target,
+        "{action} {privilege_list} ON {target} {subject_preposition} {};",
         quote_ident(role)
     )]
+}
+
+fn render_relation_wildcard(
+    action: &str,
+    subject_preposition: &str,
+    role: &str,
+    privilege_list: &str,
+    object_type: ObjectType,
+    schema: Option<&str>,
+    ctx: &SqlContext,
+) -> Vec<String> {
+    let schema_name = schema.unwrap_or("public");
+
+    if let Some(object_names) = ctx
+        .relation_inventory
+        .get(&(object_type, schema_name.to_string()))
+    {
+        return object_names
+            .iter()
+            .map(|object_name| {
+                format!(
+                    "{action} {privilege_list} ON TABLE {}.{} {subject_preposition} {};",
+                    quote_ident(schema_name),
+                    quote_ident(object_name),
+                    quote_ident(role),
+                )
+            })
+            .collect();
+    }
+
+    vec![format!(
+        "DO $pgroles$\nDECLARE obj record;\nBEGIN\n  FOR obj IN\n    SELECT n.nspname AS schema_name, c.relname AS object_name\n    FROM pg_class c\n    JOIN pg_namespace n ON n.oid = c.relnamespace\n    WHERE c.relkind IN ({})\n      AND n.nspname = {}\n    ORDER BY c.relname\n  LOOP\n    EXECUTE format('{} {} ON TABLE %I.%I {} %I;', obj.schema_name, obj.object_name, {});\n  END LOOP;\nEND\n$pgroles$;",
+        relation_relkinds_sql(object_type),
+        quote_literal(schema_name),
+        action,
+        privilege_list,
+        subject_preposition,
+        quote_literal(role),
+    )]
+}
+
+fn relation_relkinds_sql(object_type: ObjectType) -> &'static str {
+    match object_type {
+        ObjectType::Table => "'r', 'p'",
+        ObjectType::View => "'v'",
+        ObjectType::MaterializedView => "'m'",
+        _ => unreachable!("relation_relkinds_literal only supports relation object types"),
+    }
 }
 
 /// Format the object target for GRANT/REVOKE statements.
@@ -633,10 +738,17 @@ mod tests {
             schema: Some("inventory".to_string()),
             name: Some("*".to_string()),
         };
-        let sql = render(&change);
+        let sql = render_statements_with_context(
+            &change,
+            &SqlContext::default().with_relation_inventory(BTreeMap::from([(
+                (ObjectType::Table, "inventory".to_string()),
+                vec!["orders".to_string(), "widgets".to_string()],
+            )])),
+        )
+        .join("\n");
         assert_eq!(
             sql,
-            "GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA \"inventory\" TO \"inventory-editor\";"
+            "GRANT INSERT, SELECT ON TABLE \"inventory\".\"orders\" TO \"inventory-editor\";\nGRANT INSERT, SELECT ON TABLE \"inventory\".\"widgets\" TO \"inventory-editor\";"
         );
     }
 
@@ -832,6 +944,7 @@ mod tests {
     fn render_add_member_pg15_legacy_syntax() {
         let ctx = SqlContext {
             pg_major_version: 15,
+            ..Default::default()
         };
         let change = Change::AddMember {
             role: "editors".to_string(),
@@ -847,6 +960,7 @@ mod tests {
     fn render_add_member_pg15_with_admin() {
         let ctx = SqlContext {
             pg_major_version: 15,
+            ..Default::default()
         };
         let change = Change::AddMember {
             role: "editors".to_string(),
@@ -865,6 +979,7 @@ mod tests {
     fn render_add_member_pg16_with_options() {
         let ctx = SqlContext {
             pg_major_version: 16,
+            ..Default::default()
         };
         let change = Change::AddMember {
             role: "editors".to_string(),
@@ -877,6 +992,48 @@ mod tests {
             sql,
             "GRANT \"editors\" TO \"user@example.com\" WITH INHERIT FALSE, ADMIN TRUE;"
         );
+    }
+
+    #[test]
+    fn render_materialized_view_wildcard_with_inventory_expands_per_object() {
+        let ctx = SqlContext::default().with_relation_inventory(BTreeMap::from([(
+            (ObjectType::MaterializedView, "reporting".to_string()),
+            vec!["daily_sales".to_string(), "weekly_sales".to_string()],
+        )]));
+        let change = Change::Revoke {
+            role: "analytics".to_string(),
+            privileges: [Privilege::Select].into_iter().collect(),
+            object_type: ObjectType::MaterializedView,
+            schema: Some("reporting".to_string()),
+            name: Some("*".to_string()),
+        };
+
+        let sql = render_statements_with_context(&change, &ctx);
+        assert_eq!(
+            sql,
+            vec![
+                "REVOKE SELECT ON TABLE \"reporting\".\"daily_sales\" FROM \"analytics\";"
+                    .to_string(),
+                "REVOKE SELECT ON TABLE \"reporting\".\"weekly_sales\" FROM \"analytics\";"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn render_materialized_view_wildcard_without_inventory_uses_catalog_loop() {
+        let change = Change::Revoke {
+            role: "analytics".to_string(),
+            privileges: [Privilege::Select].into_iter().collect(),
+            object_type: ObjectType::MaterializedView,
+            schema: Some("reporting".to_string()),
+            name: Some("*".to_string()),
+        };
+
+        let sql = render_statements_with_context(&change, &SqlContext::default());
+        assert_eq!(sql.len(), 1);
+        assert!(sql[0].contains("WHERE c.relkind IN ('m')"));
+        assert!(sql[0].contains("REVOKE SELECT ON TABLE %I.%I FROM %I;"));
     }
 
     // -----------------------------------------------------------------------
@@ -936,7 +1093,7 @@ memberships:
         // Smoke test: the output should contain key SQL statements
         assert!(sql.contains("CREATE ROLE \"inventory-editor\""));
         assert!(sql.contains("GRANT USAGE ON SCHEMA \"inventory\" TO \"inventory-editor\""));
-        assert!(sql.contains("ALL TABLES IN SCHEMA \"inventory\""));
+        assert!(sql.contains("GRANT DELETE, INSERT, SELECT, UPDATE ON TABLE"));
         assert!(sql.contains("ALTER DEFAULT PRIVILEGES"));
         assert!(sql.contains("GRANT \"inventory-editor\" TO \"user@example.com\""));
 
