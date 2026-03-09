@@ -235,4 +235,32 @@ roles:
         assert_eq!(login.login, Some(true));
         assert_eq!(login.connection_limit, Some(5));
     }
+
+    #[test]
+    fn exported_yaml_omits_null_fields() {
+        let yaml = r#"
+roles:
+  - name: basic-role
+  - name: login-role
+    login: true
+    connection_limit: 5
+"#;
+        let manifest = parse_manifest(yaml).unwrap();
+        let expanded = expand_manifest(&manifest).unwrap();
+        let graph = RoleGraph::from_expanded(&expanded, None).unwrap();
+
+        let exported = role_graph_to_manifest(&graph);
+        let serialized = serde_yaml::to_string(&exported).unwrap();
+
+        assert!(
+            !serialized.contains("null"),
+            "serialized YAML should not contain null fields, got:\n{serialized}"
+        );
+        // Non-default attributes should still be present
+        assert!(serialized.contains("login: true"), "got:\n{serialized}");
+        assert!(
+            serialized.contains("connection_limit: 5"),
+            "got:\n{serialized}"
+        );
+    }
 }
