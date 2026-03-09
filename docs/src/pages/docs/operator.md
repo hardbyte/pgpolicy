@@ -158,6 +158,7 @@ spec:
 
   interval: "5m"   # reconciliation interval (supports 5m, 1h, 30s, 1h30m)
   suspend: false   # set true to pause reconciliation
+  mode: apply      # apply changes, or use plan for non-mutating drift preview
 
   default_owner: app_owner
 
@@ -166,11 +167,19 @@ spec:
       grants:
         - privileges: [USAGE]
           'on': { type: schema }
-        - privileges: [SELECT, INSERT, UPDATE, DELETE]
+        - privileges: [SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER]
           'on': { type: table, name: "*" }
+        - privileges: [USAGE, SELECT, UPDATE]
+          'on': { type: sequence, name: "*" }
+        - privileges: [EXECUTE]
+          'on': { type: function, name: "*" }
       default_privileges:
-        - privileges: [SELECT, INSERT, UPDATE, DELETE]
+        - privileges: [SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER]
           on_type: table
+        - privileges: [USAGE, SELECT, UPDATE]
+          on_type: sequence
+        - privileges: [EXECUTE]
+          on_type: function
 
   schemas:
     - name: inventory
@@ -222,7 +231,7 @@ Current behavior:
 
 - `Ready=False`
 - reason `InsufficientPrivileges`
-- `lastError` contains the PostgreSQL error message, for example `permission denied to create role`
+- `last_error` contains the PostgreSQL error message, for example `permission denied to create role`
 - the policy retries on its normal reconcile interval rather than exponential transient backoff
 
 This is the expected state when the database credential is valid but under-privileged for the requested manifest.
@@ -234,6 +243,34 @@ The `interval` field controls how often the operator re-reconciles, even when th
 ### Suspending
 
 Set `suspend: true` to pause reconciliation without deleting the resource. The operator will skip the resource until `suspend` is set back to `false`.
+
+### Plan mode
+
+Set `mode: plan` to let the operator inspect the database, compute the diff, and publish the planned SQL without executing it.
+
+```yaml
+spec:
+  connection:
+    secretRef:
+      name: postgres-credentials
+  mode: plan
+  roles:
+    - name: preview-user
+      login: true
+```
+
+Plan mode is useful when you want the operator to stay in-cluster but you are not ready to trust it with mutations yet.
+
+Current behavior in `plan` mode:
+
+- the operator connects to the database and computes the full diff normally
+- no SQL is executed
+- `status.change_summary` records the pending changes
+- `status.planned_sql` stores the rendered SQL, truncated if needed for status size safety
+- `Ready=True` with reason `Planned`
+- `Drifted=True` when changes are pending, `Drifted=False` when the database is already in sync
+
+Use `suspend` when you want the controller to stop reconciling entirely. Use `plan` when you want it to keep inspecting and showing you what it would do.
 
 ### Health and telemetry
 
@@ -263,6 +300,8 @@ The operator also emits transition-based Kubernetes Events such as:
 - `Reconciled`
 - `Recovered`
 - `SecretFetchFailed`
+- `DriftDetected`
+- `PlanClean`
 - `DatabaseConnectionFailed`
 - `InsufficientPrivileges`
 - `UnsafeRoleDropsBlocked`
@@ -282,20 +321,20 @@ status:
       status: "True"
       reason: Reconciled
       message: "Applied 5 changes"
-      lastTransitionTime: "2026-03-06T10:30:00Z"
-  observedGeneration: 3
-  lastReconcileTime: "2026-03-06T10:30:00Z"
-  transientFailureCount: 0
-  changeSummary:
-    rolesCreated: 2
-    rolesAltered: 0
-    rolesDropped: 0
-    grantsAdded: 3
-    grantsRevoked: 0
-    defaultPrivilegesSet: 2
-    defaultPrivilegesRevoked: 0
-    membersAdded: 1
-    membersRemoved: 0
+      last_transition_time: "2026-03-06T10:30:00Z"
+  observed_generation: 3
+  last_reconcile_time: "2026-03-06T10:30:00Z"
+  transient_failure_count: 0
+  change_summary:
+    roles_created: 2
+    roles_altered: 0
+    roles_dropped: 0
+    grants_added: 3
+    grants_revoked: 0
+    default_privileges_set: 2
+    default_privileges_revoked: 0
+    members_added: 1
+    members_removed: 0
     total: 8
 ```
 
@@ -311,8 +350,8 @@ status:
     - type: Degraded
       status: "True"
       reason: InsufficientPrivileges
-  lastError: "error returned from database: permission denied to create role"
-  transientFailureCount: 0
+  last_error: "error returned from database: permission denied to create role"
+  transient_failure_count: 0
 ```
 
 ### Conditions
@@ -320,6 +359,7 @@ status:
 | Type | Meaning |
 | --- | --- |
 | `Ready` | `True` when the last reconciliation succeeded |
+| `Drifted` | `True` when `plan` mode found pending changes |
 | `Reconciling` | `True` while a reconciliation is in progress |
 | `Degraded` | `True` when the last reconciliation failed (includes error detail) |
 
