@@ -462,6 +462,22 @@ mod live_db {
         })
     }
 
+    fn query_has_relation_privilege(role: &str, relation: &str, privilege: &str) -> bool {
+        with_runtime(async {
+            let pool = PgPool::connect(&database_url())
+                .await
+                .expect("failed to connect to live test database");
+            let row = sqlx::query("SELECT has_table_privilege($1, $2, $3) AS allowed")
+                .bind(role)
+                .bind(relation)
+                .bind(privilege)
+                .fetch_one(&pool)
+                .await
+                .expect("failed to query relation privilege");
+            row.get("allowed")
+        })
+    }
+
     fn query_drop_role_safety(role: &str) -> pgroles_inspect::DropRoleSafetyReport {
         with_runtime(async {
             let pool = PgPool::connect(&database_url())
@@ -651,6 +667,80 @@ grants:
             ])
             .assert()
             .success();
+
+        pgroles_cmd()
+            .args([
+                "diff",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--format",
+                "summary",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("No changes needed"));
+
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{role}";
+            "#
+        ));
+    }
+
+    #[test]
+    #[ignore]
+    fn wildcard_table_grants_converge_when_materialized_view_privileges_differ() {
+        let schema = unique_name("wildcard_matview_schema");
+        let role = unique_name("wildcard_matview_role");
+        let matview = "sales_rollup";
+        let table = "widgets";
+        let table_signature = format!(r#""{schema}"."{table}""#);
+        let matview_signature = format!(r#""{schema}"."{matview}""#);
+
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{role}";
+            CREATE SCHEMA "{schema}";
+            CREATE TABLE "{schema}"."{table}" (id integer);
+            CREATE MATERIALIZED VIEW "{schema}"."{matview}" AS SELECT 1 AS id;
+            "#
+        ));
+
+        let manifest_file = write_temp_manifest(&format!(
+            r#"
+roles:
+  - name: {role}
+
+grants:
+  - role: {role}
+    privileges: [SELECT]
+    on: {{ type: table, schema: {schema}, name: "*" }}
+"#
+        ));
+
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+            ])
+            .assert()
+            .success();
+
+        assert!(
+            query_has_relation_privilege(&role, &table_signature, "SELECT"),
+            "table privilege should remain granted"
+        );
+        assert!(
+            !query_has_relation_privilege(&role, &matview_signature, "SELECT"),
+            "materialized view privilege should be revoked back out"
+        );
 
         pgroles_cmd()
             .args([

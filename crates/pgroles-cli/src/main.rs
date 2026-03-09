@@ -201,7 +201,7 @@ async fn cmd_diff(
 
     match format {
         OutputFormat::Sql => {
-            let sql_ctx = detect_sql_context(&pool).await?;
+            let sql_ctx = detect_sql_context(&pool, &validated.expanded).await?;
             if summary.is_empty() {
                 println!("-- No changes needed. Database is in sync with manifest.");
             } else {
@@ -235,7 +235,7 @@ async fn cmd_apply(file: &Path, database_url: &str, dry_run: bool) -> Result<()>
     let validated = validate_manifest(&yaml)?;
 
     let pool = connect_db(database_url).await?;
-    let sql_ctx = detect_sql_context(&pool).await?;
+    let sql_ctx = detect_sql_context(&pool, &validated.expanded).await?;
 
     // Detect cloud provider privilege level and warn about unsupported operations.
     let privilege_level = pgroles_inspect::detect_privilege_level(&pool)
@@ -357,17 +357,30 @@ async fn connect_db(database_url: &str) -> Result<PgPool> {
         .context("failed to connect to database")
 }
 
-async fn detect_sql_context(pool: &PgPool) -> Result<pgroles_core::sql::SqlContext> {
+async fn detect_sql_context(
+    pool: &PgPool,
+    expanded: &pgroles_core::manifest::ExpandedManifest,
+) -> Result<pgroles_core::sql::SqlContext> {
     let pg_version = pgroles_inspect::detect_pg_version(pool)
         .await
         .context("failed to detect PostgreSQL version")?;
+    let inspect_config = InspectConfig::from_expanded(expanded, false);
+    let managed_schemas: Vec<&str> = inspect_config
+        .managed_schemas
+        .iter()
+        .map(|schema| schema.as_str())
+        .collect();
+    let relation_inventory = pgroles_inspect::fetch_relation_inventory(pool, &managed_schemas)
+        .await
+        .context("failed to inspect relation inventory")?;
     info!(
         pg_major = pg_version.major(),
         "detected PostgreSQL server version"
     );
-    Ok(pgroles_core::sql::SqlContext::from_version_num(
-        pg_version.version_num,
-    ))
+    Ok(
+        pgroles_core::sql::SqlContext::from_version_num(pg_version.version_num)
+            .with_relation_inventory(relation_inventory),
+    )
 }
 
 async fn inspect_current(

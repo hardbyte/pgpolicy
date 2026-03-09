@@ -38,7 +38,10 @@ let current = RoleGraph::default();
 let changes = diff::diff(&current, &desired);
 let sql = sql::render_all_with_context(
     &changes,
-    &sql::SqlContext { pg_major_version: 16 },
+    &sql::SqlContext {
+        pg_major_version: 16,
+        ..Default::default()
+    },
 );
 assert!(sql.contains("CREATE ROLE"));
 # Ok::<(), Box<dyn std::error::Error>>(())

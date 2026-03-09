@@ -81,6 +81,52 @@ pub async fn fetch_privileges(
     fetch_privileges_with_wildcards(pool, managed_schemas, managed_roles, &[]).await
 }
 
+/// Fetch schema-scoped relation names grouped by object type.
+pub async fn fetch_relation_inventory(
+    pool: &PgPool,
+    managed_schemas: &[&str],
+) -> Result<BTreeMap<(ObjectType, String), Vec<String>>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, AclRow>(
+        r#"
+        SELECT
+            NULL::text AS grantee,
+            '' AS privilege_type,
+            n.nspname AS schema_name,
+            c.relname AS object_name,
+            CASE c.relkind
+                WHEN 'r' THEN 'table'
+                WHEN 'p' THEN 'table'
+                WHEN 'v' THEN 'view'
+                WHEN 'm' THEN 'materialized_view'
+            END AS obj_type
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = ANY($1)
+          AND c.relkind IN ('r', 'p', 'v', 'm')
+        ORDER BY n.nspname, c.relkind, c.relname
+        "#,
+    )
+    .bind(managed_schemas)
+    .fetch_all(pool)
+    .await?;
+
+    let mut inventory = BTreeMap::new();
+    for row in rows {
+        let Some(object_type) = obj_type_str_to_object_type(&row.obj_type) else {
+            continue;
+        };
+        inventory
+            .entry((
+                object_type,
+                row.schema_name
+                    .expect("relation inventory rows always include schema"),
+            ))
+            .or_insert_with(Vec::new)
+            .push(row.object_name);
+    }
+    Ok(inventory)
+}
+
 pub(crate) async fn fetch_privileges_with_wildcards(
     pool: &PgPool,
     managed_schemas: &[&str],
