@@ -285,6 +285,30 @@ fn plan_alias_for_diff() {
 }
 
 // =========================================================================
+// generate subcommand — no DB
+// =========================================================================
+
+#[test]
+fn generate_help() {
+    pgroles_cmd()
+        .args(["generate", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--database-url"))
+        .stdout(predicate::str::contains("--output"));
+}
+
+#[test]
+fn generate_missing_database_url() {
+    pgroles_cmd()
+        .env_remove("DATABASE_URL")
+        .args(["generate"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("database-url"));
+}
+
+// =========================================================================
 // diff/plan subcommand — requires DB (ignored by default)
 // =========================================================================
 
@@ -552,6 +576,50 @@ mod live_db {
         PgConnection::connect_with(&options)
             .await
             .expect("failed to connect as retired role")
+    }
+
+    #[test]
+    #[ignore]
+    fn generate_output_to_stdout_has_no_nulls() {
+        let output = pgroles_cmd()
+            .args(["generate", "--database-url", &database_url()])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let yaml = String::from_utf8(output).expect("output is not valid UTF-8");
+        assert!(
+            !yaml.contains("null"),
+            "generated YAML should not contain null fields"
+        );
+        assert!(yaml.contains("roles:"), "expected roles section in output");
+    }
+
+    #[test]
+    #[ignore]
+    fn generate_output_to_file() {
+        let output_file = tempfile::NamedTempFile::new().expect("failed to create temp file");
+
+        pgroles_cmd()
+            .args([
+                "generate",
+                "--database-url",
+                &database_url(),
+                "--output",
+                output_file.path().to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+
+        let yaml = std::fs::read_to_string(output_file.path()).expect("failed to read output file");
+        assert!(!yaml.is_empty(), "output file should not be empty");
+        assert!(
+            !yaml.contains("null"),
+            "generated YAML written to file should not contain null fields"
+        );
+        assert!(yaml.contains("roles:"), "expected roles section in file");
     }
 
     #[test]

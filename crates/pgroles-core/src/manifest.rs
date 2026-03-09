@@ -113,7 +113,7 @@ impl std::fmt::Display for Privilege {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyManifest {
     /// Default owner for ALTER DEFAULT PRIVILEGES (e.g. "app_owner").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_owner: Option<String>,
 
     /// Cloud auth provider configurations for IAM-mapped role awareness.
@@ -257,31 +257,31 @@ fn default_role_pattern() -> String {
 pub struct RoleDefinition {
     pub name: String,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub superuser: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub createdb: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub createrole: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherit: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replication: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bypassrls: Option<bool>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_limit: Option<i32>,
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 }
 
@@ -300,11 +300,11 @@ pub struct ObjectTarget {
     pub object_type: ObjectType,
 
     /// Schema name. Required for most object types except database.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
 
     /// Object name, or "*" for all objects. Omit for schema-level grants.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
@@ -312,7 +312,7 @@ pub struct ObjectTarget {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DefaultPrivilege {
     /// The role that owns newly created objects. If omitted, uses manifest's default_owner.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
 
     pub schema: String,
@@ -325,7 +325,7 @@ pub struct DefaultPrivilege {
 pub struct DefaultPrivilegeGrant {
     /// The role receiving the default privilege. Only used in top-level default_privileges
     /// (in profiles, the role is determined by expansion).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
 
     pub privileges: Vec<Privilege>,

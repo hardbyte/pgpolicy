@@ -98,6 +98,10 @@ enum Commands {
         /// PostgreSQL connection string (or set DATABASE_URL).
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
+
+        /// Write output to this file instead of stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -162,8 +166,11 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             cmd_inspect(&file, &database_url).await?;
             Ok(ExitCode::SUCCESS)
         }
-        Commands::Generate { database_url } => {
-            cmd_generate(&database_url).await?;
+        Commands::Generate {
+            database_url,
+            output,
+        } => {
+            cmd_generate(&database_url, output.as_deref()).await?;
             Ok(ExitCode::SUCCESS)
         }
     }
@@ -325,7 +332,7 @@ async fn cmd_inspect(file: &Path, database_url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_generate(database_url: &str) -> Result<()> {
+async fn cmd_generate(database_url: &str, output: Option<&Path>) -> Result<()> {
     let pool = connect_db(database_url).await?;
 
     // Introspect all non-system roles by using an unscoped inspect config.
@@ -341,7 +348,15 @@ async fn cmd_generate(database_url: &str) -> Result<()> {
 
     let manifest = pgroles_core::export::role_graph_to_manifest(&graph);
     let yaml = serde_yaml::to_string(&manifest).context("failed to serialize manifest to YAML")?;
-    print!("{yaml}");
+
+    match output {
+        Some(path) => {
+            std::fs::write(path, &yaml)
+                .with_context(|| format!("failed to write output to {}", path.display()))?;
+            info!(path = %path.display(), "manifest written");
+        }
+        None => print!("{yaml}"),
+    }
 
     Ok(())
 }
