@@ -1423,4 +1423,328 @@ retirements:
             "role should be dropped after terminating sessions"
         );
     }
+
+    // =================================================================
+    // Reconciliation mode live-DB tests
+    // =================================================================
+
+    /// Additive mode: apply creates roles and grants but does NOT drop
+    /// an extra role that exists in the database but not in the manifest.
+    #[test]
+    #[ignore]
+    fn additive_mode_does_not_drop_extra_roles() {
+        let schema = unique_name("add_schema");
+        let managed_role = unique_name("add_managed");
+        let extra_role = unique_name("add_extra");
+
+        // Set up: create the extra role that is NOT in our manifest.
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{managed_role}";
+            DROP ROLE IF EXISTS "{extra_role}";
+            CREATE ROLE "{extra_role}";
+            CREATE SCHEMA "{schema}";
+            CREATE TABLE "{schema}"."widgets" (id integer);
+            "#
+        ));
+
+        let manifest_file = write_temp_manifest(&format!(
+            r#"
+roles:
+  - name: {managed_role}
+
+grants:
+  - role: {managed_role}
+    privileges: [SELECT]
+    on: {{ type: table, schema: {schema}, name: "*" }}
+"#
+        ));
+
+        // Apply in additive mode
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--mode",
+                "additive",
+            ])
+            .assert()
+            .success();
+
+        // Managed role should be created
+        assert!(
+            query_role_exists(&managed_role),
+            "managed role should be created in additive mode"
+        );
+
+        // Extra role should NOT have been dropped
+        assert!(
+            query_role_exists(&extra_role),
+            "extra role should NOT be dropped in additive mode"
+        );
+
+        // Now diff in additive mode should show no changes
+        // (the extra role isn't managed, and the managed role is in sync)
+        pgroles_cmd()
+            .args([
+                "diff",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--format",
+                "summary",
+                "--mode",
+                "additive",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("No changes needed"));
+
+        // Cleanup
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{managed_role}";
+            DROP ROLE IF EXISTS "{extra_role}";
+            "#
+        ));
+    }
+
+    /// Additive mode: does not revoke grants that exist in the DB but
+    /// not in the manifest.
+    #[test]
+    #[ignore]
+    fn additive_mode_does_not_revoke_extra_grants() {
+        let schema = unique_name("addgr_schema");
+        let role = unique_name("addgr_role");
+
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{role}";
+            CREATE ROLE "{role}";
+            CREATE SCHEMA "{schema}";
+            CREATE TABLE "{schema}"."widgets" (id integer);
+            GRANT SELECT, INSERT ON "{schema}"."widgets" TO "{role}";
+            "#
+        ));
+
+        // Manifest only declares SELECT, not INSERT.
+        let manifest_file = write_temp_manifest(&format!(
+            r#"
+roles:
+  - name: {role}
+
+grants:
+  - role: {role}
+    privileges: [SELECT]
+    on: {{ type: table, schema: {schema}, name: "*" }}
+"#
+        ));
+
+        // Apply in additive mode — should NOT revoke INSERT
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--mode",
+                "additive",
+            ])
+            .assert()
+            .success();
+
+        // INSERT should still be granted
+        assert!(
+            query_has_relation_privilege(
+                &role,
+                &format!(r#""{schema}"."widgets""#),
+                "INSERT"
+            ),
+            "INSERT should NOT be revoked in additive mode"
+        );
+
+        // Cleanup
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{role}";
+            "#
+        ));
+    }
+
+    /// Adopt mode: revokes extra grants within managed scope but does
+    /// NOT drop roles that aren't in the manifest.
+    #[test]
+    #[ignore]
+    fn adopt_mode_revokes_grants_but_does_not_drop_roles() {
+        let schema = unique_name("adopt_schema");
+        let managed_role = unique_name("adopt_managed");
+        let extra_role = unique_name("adopt_extra");
+
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{managed_role}";
+            DROP ROLE IF EXISTS "{extra_role}";
+            CREATE ROLE "{managed_role}";
+            CREATE ROLE "{extra_role}";
+            CREATE SCHEMA "{schema}";
+            CREATE TABLE "{schema}"."widgets" (id integer);
+            GRANT SELECT, INSERT ON "{schema}"."widgets" TO "{managed_role}";
+            "#
+        ));
+
+        // Manifest only declares SELECT (not INSERT) for the managed role.
+        // The extra role is not mentioned at all.
+        let manifest_file = write_temp_manifest(&format!(
+            r#"
+roles:
+  - name: {managed_role}
+
+grants:
+  - role: {managed_role}
+    privileges: [SELECT]
+    on: {{ type: table, schema: {schema}, name: "*" }}
+"#
+        ));
+
+        // Apply in adopt mode
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--mode",
+                "adopt",
+            ])
+            .assert()
+            .success();
+
+        // Extra role should NOT be dropped
+        assert!(
+            query_role_exists(&extra_role),
+            "extra role should NOT be dropped in adopt mode"
+        );
+
+        // INSERT should be revoked (adopt mode revokes within managed scope)
+        assert!(
+            !query_has_relation_privilege(
+                &managed_role,
+                &format!(r#""{schema}"."widgets""#),
+                "INSERT"
+            ),
+            "INSERT should be revoked in adopt mode"
+        );
+
+        // SELECT should remain
+        assert!(
+            query_has_relation_privilege(
+                &managed_role,
+                &format!(r#""{schema}"."widgets""#),
+                "SELECT"
+            ),
+            "SELECT should remain in adopt mode"
+        );
+
+        // Diff in adopt mode should show no further changes
+        pgroles_cmd()
+            .args([
+                "diff",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--format",
+                "summary",
+                "--mode",
+                "adopt",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("No changes needed"));
+
+        // Cleanup
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{managed_role}";
+            DROP ROLE IF EXISTS "{extra_role}";
+            "#
+        ));
+    }
+
+    /// Authoritative mode (default): drops extra roles that aren't in the manifest.
+    /// This confirms the default behavior is unchanged.
+    #[test]
+    #[ignore]
+    fn authoritative_mode_drops_extra_roles() {
+        let schema = unique_name("auth_schema");
+        let managed_role = unique_name("auth_managed");
+        let extra_role = unique_name("auth_extra");
+
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{managed_role}";
+            DROP ROLE IF EXISTS "{extra_role}";
+            CREATE ROLE "{extra_role}";
+            CREATE SCHEMA "{schema}";
+            "#
+        ));
+
+        // Manifest manages schema + one role. extra_role is a retirement candidate.
+        let manifest_file = write_temp_manifest(&format!(
+            r#"
+roles:
+  - name: {managed_role}
+
+retirements:
+  - role: {extra_role}
+"#
+        ));
+
+        // Apply in authoritative mode (explicitly)
+        pgroles_cmd()
+            .args([
+                "apply",
+                "--file",
+                manifest_file.path().to_str().unwrap(),
+                "--database-url",
+                &database_url(),
+                "--mode",
+                "authoritative",
+            ])
+            .assert()
+            .success();
+
+        // Extra role SHOULD be dropped in authoritative mode
+        assert!(
+            !query_role_exists(&extra_role),
+            "extra role should be dropped in authoritative mode"
+        );
+
+        // Managed role should exist
+        assert!(
+            query_role_exists(&managed_role),
+            "managed role should be created in authoritative mode"
+        );
+
+        // Cleanup
+        execute_sql(&format!(
+            r#"
+            DROP SCHEMA IF EXISTS "{schema}" CASCADE;
+            DROP ROLE IF EXISTS "{managed_role}";
+            "#
+        ));
+    }
 }
