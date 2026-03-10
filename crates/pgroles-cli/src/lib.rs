@@ -557,6 +557,89 @@ schemas:
     }
 
     // -----------------------------------------------------------------------
+    // ReconciliationMode integration through compute_plan + filter
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn additive_mode_filters_revokes_from_plan() {
+        use pgroles_core::diff::{ReconciliationMode, filter_changes};
+        use pgroles_core::model::RoleState;
+
+        let validated = validate_manifest(PROFILE_MANIFEST).unwrap();
+
+        // Simulate a DB with one extra role and extra grants not in manifest.
+        let mut current = validated.desired.clone();
+        current
+            .roles
+            .insert("stale-role".to_string(), RoleState::default());
+
+        let changes = compute_plan(&current, &validated.desired);
+        // Should include a DropRole for "stale-role"
+        assert!(changes.iter().any(|c| matches!(
+            c,
+            pgroles_core::diff::Change::DropRole { name } if name == "stale-role"
+        )));
+
+        let filtered = filter_changes(changes, ReconciliationMode::Additive);
+        // DropRole should be gone
+        assert!(
+            !filtered.iter().any(|c| matches!(
+                c,
+                pgroles_core::diff::Change::DropRole { .. }
+            )),
+            "additive mode should filter out DropRole"
+        );
+    }
+
+    #[test]
+    fn adopt_mode_filters_drops_but_keeps_revokes() {
+        use pgroles_core::diff::{ReconciliationMode, filter_changes};
+        use pgroles_core::model::{GrantKey, GrantState, RoleState};
+        use pgroles_core::manifest::{ObjectType, Privilege};
+        use std::collections::BTreeSet;
+
+        let validated = validate_manifest(MINIMAL_MANIFEST).unwrap();
+
+        // Simulate a DB that has the desired role plus an extra role and extra grants
+        let mut current = validated.desired.clone();
+        current
+            .roles
+            .insert("stale-role".to_string(), RoleState::default());
+        // Add an extra grant that's not in the manifest for a managed role
+        current.grants.insert(
+            GrantKey {
+                role: "analytics".to_string(),
+                object_type: ObjectType::Table,
+                schema: Some("public".to_string()),
+                name: Some("*".to_string()),
+            },
+            GrantState {
+                privileges: BTreeSet::from([Privilege::Select]),
+            },
+        );
+
+        let changes = compute_plan(&current, &validated.desired);
+
+        let filtered = filter_changes(changes, ReconciliationMode::Adopt);
+        // DropRole should be gone
+        assert!(
+            !filtered.iter().any(|c| matches!(
+                c,
+                pgroles_core::diff::Change::DropRole { .. }
+            )),
+            "adopt mode should filter out DropRole"
+        );
+        // Revoke should still be present
+        assert!(
+            filtered.iter().any(|c| matches!(
+                c,
+                pgroles_core::diff::Change::Revoke { .. }
+            )),
+            "adopt mode should keep Revoke changes"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // format_plan_json
     // -----------------------------------------------------------------------
 
