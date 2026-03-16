@@ -18,8 +18,8 @@ The operator brings the same convergent model as the CLI into Kubernetes. Instea
 - Status conditions and change summaries on the custom resource
 - Finalizer-based cleanup on resource deletion
 
-{% callout title="Early production use" %}
-The operator handles serialized reconciliation with conflict detection, failure-aware retry, and observable status reporting. The API is `v1alpha1` — controller semantics are stable but the CRD contract and upgrade path are not yet hardened. Evaluate against your own risk tolerance before unsupervised production use.
+{% callout title="Maturity" %}
+The operator provides serialized reconciliation with conflict detection, failure-aware retry, and observable status reporting. The API is `v1alpha1` — controller semantics are stable but the CRD contract has no documented upgrade path. Review the [production status](#production-status) section before deploying.
 {% /callout %}
 
 ## Installation
@@ -82,9 +82,9 @@ The operator runs as `nobody` (UID 65534) with a read-only root filesystem, no c
 
 ## Production status
 
-The operator's safety model — serialized reconciliation, conflict detection, failure-aware retry, and transactional apply — is stable and well-tested. The API surface, scale ceiling, and operational guidance are not.
+The operator's safety model — serialized reconciliation, conflict detection, failure-aware retry, and transactional apply — is stable and tested in CI. The API surface, scale ceiling, and operational guidance have known gaps.
 
-### What's solid
+### Stable
 
 **Reconciliation safety:**
 
@@ -105,7 +105,7 @@ The operator's safety model — serialized reconciliation, conflict detection, f
 - Transition-based Kubernetes Events for `kubectl describe` debugging.
 - `/livez` and `/readyz` health probes.
 
-### What's not there yet
+### Known gaps
 
 **API stability:**
 
@@ -114,12 +114,12 @@ The operator's safety model — serialized reconciliation, conflict detection, f
 
 **Scale and HA:**
 
-- The largest tested workload is 200 roles / 100 schemas / 5 policies (scheduled CI only, not PR CI).
+- The largest tested workload is 200 roles / 100 schemas / 5 policies (scheduled CI, not PR CI).
 - Advisory locks enable multi-replica deployment, but there is no documented HA pattern, replica guidance, or failure-mode analysis.
 
 **Password management test coverage:**
 
-- Password support shipped in v0.2.0, but several code paths lack test coverage: Secret resolution happy paths, end-to-end password lifecycle, and generate/export round-trip behavior with passwords.
+- Password support exists but several code paths lack test coverage: Secret resolution happy paths, end-to-end password lifecycle, and generate/export round-trip with passwords.
 
 **Managed provider validation:**
 
@@ -131,9 +131,9 @@ The operator's safety model — serialized reconciliation, conflict detection, f
 
 **Deletion semantics:**
 
-- Deleting a `PostgresPolicy` stops reconciliation but does not revert the database. This is intentional ("stop managing" not "undo"), but diverges from GitOps conventions where deleting a resource reverts its effects.
+- Deleting a `PostgresPolicy` stops reconciliation but does not revert the database. This is by design (stop managing, not undo) but differs from GitOps conventions where deleting a resource reverts its effects.
 
-### CI validation coverage
+### CI coverage
 
 PR CI validates:
 
@@ -148,11 +148,11 @@ Scheduled coverage on `main` additionally exercises:
 - 5 policies across 3 databases, 100 schemas, 200 roles
 - repeated secret churn with latency reporting
 
-### Roadmap to API stability
+### Path to API stability
 
 - Carry controller semantics into the CRD contract rather than leaving them as implementation conventions.
 - Promote beyond `v1alpha1` only after the upgrade and rollback story is explicit.
-- Fill password management test gaps before treating that feature as production-grade.
+- Close password management test gaps.
 - Establish a scale validation baseline that reflects real-world deployment sizes.
 
 ## Custom resource
