@@ -168,6 +168,16 @@ pub fn build_visual_graph(graph: &RoleGraph, source: VisualSource) -> VisualGrap
                 privileges: privileges.iter().map(|p| p.to_string()).collect(),
                 comment: None,
             });
+        } else {
+            // Node already exists from another role — merge privileges.
+            if let Some(existing) = nodes.iter_mut().find(|n| n.id == node_id) {
+                for priv_str in privileges.iter().map(|p| p.to_string()) {
+                    if !existing.privileges.contains(&priv_str) {
+                        existing.privileges.push(priv_str);
+                    }
+                }
+                existing.privileges.sort();
+            }
         }
 
         let privilege_label = privileges
@@ -648,8 +658,26 @@ fn dot_escape_label(label: &str) -> String {
 }
 
 fn mermaid_escape_id(id: &str) -> String {
-    // Mermaid IDs: replace problematic characters with underscores.
-    id.replace([':', '.', '@', '*', ' ', '/', '\\'], "_")
+    // Mermaid IDs must be alphanumeric + hyphens + underscores.
+    // Use distinct substitutions to avoid collisions between IDs that
+    // differ only by punctuation (e.g. "alice@x.com" vs "alice_x.com").
+    let mut out = String::with_capacity(id.len());
+    for ch in id.chars() {
+        match ch {
+            ':' => out.push_str("__"),
+            '.' => out.push_str("_d_"),
+            '@' => out.push_str("_at_"),
+            '*' => out.push_str("_star_"),
+            ' ' => out.push_str("_sp_"),
+            '/' => out.push_str("_sl_"),
+            '\\' => out.push_str("_bs_"),
+            c if c.is_alphanumeric() || c == '-' || c == '_' => out.push(c),
+            _ => {
+                out.push_str(&format!("_x{:02x}_", ch as u32));
+            }
+        }
+    }
+    out
 }
 
 fn mermaid_escape_label(label: &str) -> String {
@@ -886,5 +914,61 @@ memberships:
         assert!(visual.nodes.is_empty());
         assert!(visual.edges.is_empty());
         assert_eq!(visual.meta.role_count, 0);
+    }
+
+    #[test]
+    fn grant_node_privileges_merge_across_roles() {
+        // Two roles granting different privileges to the same schema.tables[*] target.
+        let yaml = r#"
+roles:
+  - name: role-a
+  - name: role-b
+
+grants:
+  - role: role-a
+    privileges: [SELECT]
+    on: { type: table, schema: app, name: "*" }
+  - role: role-b
+    privileges: [SELECT, INSERT, UPDATE]
+    on: { type: table, schema: app, name: "*" }
+"#;
+        let manifest = parse_manifest(yaml).unwrap();
+        let expanded = expand_manifest(&manifest).unwrap();
+        let graph = RoleGraph::from_expanded(&expanded, None).unwrap();
+        let visual = build_visual_graph(&graph, VisualSource::Desired);
+
+        let grant_nodes: Vec<_> = visual
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::GrantTarget && n.label.contains("tables"))
+            .collect();
+
+        // Should be one collapsed node, not two.
+        assert_eq!(grant_nodes.len(), 1, "grant nodes: {grant_nodes:?}");
+
+        // The node's privileges should be the union of both roles' privileges.
+        let privs = &grant_nodes[0].privileges;
+        assert!(
+            privs.contains(&"INSERT".to_string()),
+            "missing INSERT in {privs:?}"
+        );
+        assert!(
+            privs.contains(&"SELECT".to_string()),
+            "missing SELECT in {privs:?}"
+        );
+        assert!(
+            privs.contains(&"UPDATE".to_string()),
+            "missing UPDATE in {privs:?}"
+        );
+    }
+
+    #[test]
+    fn mermaid_ids_do_not_collide_for_similar_names() {
+        let id_at = mermaid_escape_id("role:alice@example.com");
+        let id_dot = mermaid_escape_id("role:alice.example.com");
+        let id_under = mermaid_escape_id("role:alice_example_com");
+        assert_ne!(id_at, id_dot, "@ and . should produce different IDs");
+        assert_ne!(id_at, id_under, "@ and _ should produce different IDs");
+        assert_ne!(id_dot, id_under, ". and _ should produce different IDs");
     }
 }
